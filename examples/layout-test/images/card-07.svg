@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-labelledby="title desc">
+  <title id="title">Layout card seven</title><desc id="desc">Slate blue test image numbered seven</desc>
+  <rect width="800" height="450" fill="#3e5d7a"/><path d="M560 0 H800 V240 L560 450Z" fill="#7594ad"/>
+  <text x="55" y="82" fill="#e3edf5" font-family="Arial, sans-serif" font-size="26" font-weight="700">SCALE DOWN</text>
+  <text x="52" y="344" fill="white" font-family="Georgia, serif" font-size="180">07</text>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-labelledby="title desc">
+  <title id="title">Layout card four</title><desc id="desc">Indigo test image numbered four</desc>
+  <rect width="800" height="450" fill="#494a79"/><circle cx="640" cy="225" r="180" fill="none" stroke="#8588bd" stroke-width="52"/>
+  <text x="55" y="82" fill="#e8e8fb" font-family="Arial, sans-serif" font-size="26" font-weight="700">CONTAIN</text>
+  <text x="52" y="344" fill="white" font-family="Georgia, serif" font-size="180">04</text>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-labelledby="title desc">
+  <title id="title">Layout card three</title><desc id="desc">Ochre test image numbered three</desc>
+  <rect width="800" height="450" fill="#b17b2b"/><rect x="565" y="0" width="235" height="450" fill="#d5a956"/>
+  <text x="55" y="82" fill="#fff4dc" font-family="Arial, sans-serif" font-size="26" font-weight="700">EQUAL WIDTH</text>
+  <text x="52" y="344" fill="white" font-family="Georgia, serif" font-size="180">03</text>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-labelledby="title desc">
+  <title id="title">Layout card one</title><desc id="desc">Terracotta test image numbered one</desc>
+  <rect width="800" height="450" fill="#b84b34"/><circle cx="690" cy="90" r="125" fill="#d9765e" opacity=".65"/>
+  <text x="55" y="82" fill="#f9eee9" font-family="Arial, sans-serif" font-size="26" font-weight="700">LAYOUT TEST</text>
+  <text x="52" y="344" fill="white" font-family="Georgia, serif" font-size="180">01</text>
+</svg>

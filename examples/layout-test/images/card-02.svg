@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-labelledby="title desc">
+  <title id="title">Layout card two</title><desc id="desc">Deep teal test image numbered two</desc>
+  <rect width="800" height="450" fill="#244e55"/><path d="M0 360 L800 130 L800 450 L0 450Z" fill="#3f747b"/>
+  <text x="55" y="82" fill="#dbecee" font-family="Arial, sans-serif" font-size="26" font-weight="700">ASPECT 16:9</text>
+  <text x="52" y="344" fill="white" font-family="Georgia, serif" font-size="180">02</text>
+</svg>
