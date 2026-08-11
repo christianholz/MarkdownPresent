@@ -9,7 +9,7 @@
     "build": "pnpm run build:site && pnpm run build:extension",
     "build:site": "vite build",
     "build:extension": "vite build --config vite.extension.config.js",
-    "build:jekyll": "./scripts/build-for-jekyll.sh",
+    "package": "./scripts/package-release.sh",
     "preview": "vite preview",
     "test": "vitest run"
   },

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { extractFrontMatter, preprocessJekyll, splitSlides } from "../src/markdown.js";
+import { extractFrontMatter, extractUnsupportedMediaReferences, preprocessJekyll, splitSlides } from "../src/markdown.js";
 import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
 import { fittedImageStackWidth } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
+import { AssetManager } from "../src/assets.js";
 
 describe("Markdown slide parsing", () => {
   it("covers all seven layouts in the example deck", () => {
@@ -61,6 +62,11 @@ describe("Markdown slide parsing", () => {
   it("preprocesses common Jekyll references", () => {
     expect(preprocessJekyll("{{ site.baseurl }}/x {% link assets/y.png %}" )).toBe("/x assets/y.png");
   });
+
+  it("flags embedded media types the slide renderer cannot display", () => {
+    const markdown = '<video controls src="media/demo.mp4"></video>\n<audio src="audio/clip.ogg"></audio>';
+    expect(extractUnsupportedMediaReferences(markdown)).toEqual(["media/demo.mp4", "audio/clip.ogg"]);
+  });
 });
 
 describe("repository paths", () => {
@@ -73,6 +79,14 @@ describe("repository paths", () => {
     const source = { owner: "eth-siplab-team", repo: "deck", ref: "main" };
     expect(sameRepoGithubPath("https://github.com/eth-siplab-team/deck/blob/main/images/a.png", source)).toBe("images/a.png");
     expect(sameRepoGithubPath("/eth-siplab-team/deck/raw/refs/heads/main/images/a.png", source)).toBe("images/a.png");
+  });
+
+  it("allows externally hosted images for standalone decks", () => {
+    const manager = new AssetManager({ documentFile: { name: "slides.md" } }, { path: "slides.md" });
+    expect(manager.resolve("https://example.com/image.png")).toEqual({
+      kind: "external",
+      url: "https://example.com/image.png",
+    });
   });
 });
 

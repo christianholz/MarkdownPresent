@@ -30,7 +30,11 @@ export class LocalRepository {
 export class InlineRepository {
   constructor(markdown) { this.markdown = markdown; }
   async readText() { return this.markdown; }
-  async readBlob(path) { throw new Error(`No local asset was supplied for ${path}`); }
+  async readBlob(path) {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(`Referenced asset is not available: ${path}`);
+    return response.blob();
+  }
 }
 
 export class GithubPageRepository {

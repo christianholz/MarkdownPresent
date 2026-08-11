@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meeting Present for GitHub",
-  "version": "0.1.0",
+  "version": "0.1",
   "description": "Present Markdown files from eth-siplab-team repositories as slides.",
   "permissions": ["storage"],
   "host_permissions": [

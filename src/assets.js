@@ -31,10 +31,10 @@ export class AssetManager {
 
   resolve(input) {
     if (!input) throw new Error("Image has no source path.");
-    if (/^data:image\//i.test(input)) return { kind: "data", url: input };
+    if (/^data:/i.test(input)) return { kind: "data", url: input };
     const githubPath = this.source?.owner ? sameRepoGithubPath(input, this.source) : null;
     if (githubPath) return { kind: "repo", path: githubPath };
-    if (/^https?:/i.test(input)) return { kind: "blocked", url: input };
+    if (/^https?:/i.test(input)) return { kind: "external", url: input };
     const path = resolveRepoPath(this.source?.path || this.repository.documentFile?.webkitRelativePath || this.repository.documentFile?.name || "slides.md", input);
     return { kind: "repo", path };
   }
@@ -42,7 +42,7 @@ export class AssetManager {
   async getUrl(input) {
     const resolved = this.resolve(input);
     if (resolved.kind === "data") return resolved.url;
-    if (resolved.kind === "blocked") throw new Error("External image blocked for privacy.");
+    if (resolved.kind === "external") return resolved.url;
     if (this.cache.has(resolved.path)) return this.cache.get(resolved.path);
     const promise = this.queue.run(async () => {
       const blob = await this.repository.readBlob(resolved.path);

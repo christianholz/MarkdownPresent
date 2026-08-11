@@ -58,8 +58,8 @@ button { color: inherit; }
 .intro h1 { max-width: 630px; margin: 14px 0 22px; font-size: clamp(48px, 6.1vw, 86px); line-height: .94; letter-spacing: -.055em; font-weight: 600; }
 .lede { max-width: 530px; margin: 0; color: var(--muted); font-size: clamp(17px, 1.5vw, 21px); line-height: 1.55; }
 .source-card { width: 100%; padding: 9px; background: rgba(255,255,255,.78); backdrop-filter: blur(18px); border: 1px solid rgba(28,33,36,.11); border-radius: 22px; box-shadow: 0 24px 80px rgba(31,35,33,.11); }
-.tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; padding: 4px; background: var(--soft); border-radius: 13px; }
-.tab { border: 0; border-radius: 9px; padding: 10px; background: transparent; color: var(--muted); cursor: pointer; }
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: var(--soft); border-radius: 13px; }
+.tab { min-width: 0; border: 0; border-radius: 9px; padding: 10px 6px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
 .tab.is-active { background: white; color: var(--ink); box-shadow: 0 2px 10px rgba(30,32,30,.08); font-weight: 650; }
 .tab-panel { display: none; padding: 18px 14px 12px; }
 .tab-panel.is-active { display: block; }
@@ -79,6 +79,16 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .folder-button { display: block; padding: 10px; margin-top: 8px; text-align: center; color: var(--accent); font-size: 13px; cursor: pointer; }
 .hint, .form-error { min-height: 18px; margin: 5px 4px 0; font-size: 12px; color: var(--muted); }
 .form-error { color: #a4362d; }
+.source-note { margin: 8px 4px 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.asset-status { min-height: 18px; margin: 8px 4px 0; color: var(--muted); font-size: 12px; line-height: 1.42; }
+.asset-status.is-checking { color: var(--muted); }
+.asset-status.is-success { color: #3f6d50; }
+.asset-status.is-error { color: #a4362d; }
+.extension-panel { min-height: 286px; align-content: center; }
+.extension-panel.is-active { display: grid; }
+.extension-steps { margin: 4px 0 10px; padding-left: 1.35em; color: var(--ink); font-size: 14px; line-height: 1.55; }
+.extension-steps li { margin: .55em 0; padding-left: .2em; }
+.extension-steps code { padding: .13em .32em; border-radius: 4px; background: var(--soft); font: 12px/1.4 "SFMono-Regular", Consolas, monospace; }
 .local-browser { margin-top: 15px; }
 .local-browser input { margin-bottom: 8px; }
 .markdown-files { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 11px; background: white; }
@@ -183,6 +193,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
   .home-screen { padding: 19px; }
   .home-main { grid-template-columns: 1fr; gap: 34px; padding: 42px 0; }
   .intro h1 { font-size: clamp(46px, 15vw, 72px); }
+  .tab { font-size: 11px; }
   .home-footer { display: none; }
   .slide { width: 96vw; }
 }

@@ -1,6 +1,6 @@
 import "./style.css";
 import { InlineRepository, LocalRepository } from "./repository.js";
-import { processMarkdown } from "./markdown.js";
+import { extractUnsupportedMediaReferences, processMarkdown } from "./markdown.js";
 import { AssetManager } from "./assets.js";
 import { Presentation } from "./presentation.js";
 import { SlideOutline } from "./slide-outline.js";
@@ -34,32 +34,44 @@ document.querySelector("#app").innerHTML = `
       <div class="intro">
         <p class="eyebrow">Markdown → presentation</p>
         <h1>Your notes, already on stage.</h1>
-        <p class="lede">Paste Markdown or choose a directory containing one or more decks. Everything is rendered locally in your browser.</p>
+        <p class="lede">Upload a folder, install the GitHub extension, or paste Markdown directly. Everything is rendered in your browser.</p>
       </div>
       <section class="source-card" aria-label="Choose presentation source">
         <div class="tabs" role="tablist">
-          <button class="tab is-active" data-tab="paste" role="tab">Paste</button>
-          <button class="tab" data-tab="directory" role="tab">Directory</button>
+          <button class="tab is-active" data-tab="upload" role="tab" aria-selected="true">Upload folder</button>
+          <button class="tab" data-tab="extension" role="tab" aria-selected="false">Chrome extension</button>
+          <button class="tab" data-tab="paste" role="tab" aria-selected="false">Paste directly</button>
         </div>
-        <div class="tab-panel is-active" data-panel="paste">
-          <label class="field-label" for="markdown-input">Markdown</label>
-          <textarea id="markdown-input" spellcheck="false" aria-label="Markdown source"></textarea>
-          <button class="primary-button" id="present-paste">Present</button>
-        </div>
-        <div class="tab-panel" data-panel="directory">
+        <div class="tab-panel is-active" data-panel="upload">
           <label class="drop-zone" id="drop-zone">
             <input id="file-input" type="file" accept=".md,.markdown,image/*" multiple />
             <span class="drop-icon">↓</span>
-            <strong>Drop a directory, or Markdown and image files</strong>
-            <span>or choose files from this device</span>
+            <strong>Drop a folder or Markdown file</strong>
+            <span>or choose a Markdown file and its assets</span>
           </label>
-          <label class="folder-button">Choose a directory<input id="folder-input" type="file" webkitdirectory multiple /></label>
-          <p class="hint" id="file-status">The directory may contain several Markdown presentations.</p>
+          <label class="folder-button">Choose a folder<input id="folder-input" type="file" webkitdirectory multiple /></label>
+          <p class="source-note">You can also upload one Markdown file, but every referenced asset must be reachable. If it uses local images, upload the directory instead.</p>
+          <p class="asset-status" id="file-status" aria-live="polite">A folder may contain several Markdown presentations.</p>
           <section class="local-browser" id="local-browser" hidden>
             <label class="field-label" for="local-filter">Choose a presentation</label>
             <input id="local-filter" type="search" placeholder="Filter Markdown files…" autocomplete="off" />
             <div class="markdown-files" id="local-files" role="listbox" aria-label="Local Markdown presentations"></div>
           </section>
+        </div>
+        <div class="tab-panel extension-panel" data-panel="extension">
+          <p class="field-label">Install the unpacked extension</p>
+          <ol class="extension-steps">
+            <li>Run <code>pnpm build</code>.</li>
+            <li>Open <code>chrome://extensions</code> and enable Developer mode.</li>
+            <li>Choose <strong>Load unpacked</strong> and select <code>dist/extension</code>.</li>
+          </ol>
+          <p class="source-note">On supported GitHub Markdown pages, click <strong>Present</strong> beside the Raw button.</p>
+        </div>
+        <div class="tab-panel" data-panel="paste">
+          <label class="field-label" for="markdown-input">Markdown</label>
+          <textarea id="markdown-input" spellcheck="false" aria-label="Markdown source"></textarea>
+          <p class="asset-status" id="paste-status" aria-live="polite"></p>
+          <button class="primary-button" id="present-paste">Check and present</button>
         </div>
         <p class="form-error" id="form-error" role="alert"></p>
       </section>
@@ -119,6 +131,65 @@ function updateSlideHash(index) {
   const hash = readHash();
   hash.set("slide", String(index + 1));
   history.replaceState(null, "", `#${hash}`);
+}
+
+function imageReferences(documentModel) {
+  return [...new Set(documentModel.slides.flatMap((slide) => slide.images.map((image) => image.src.trim())).filter(Boolean))];
+}
+
+function probeImage(url, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const timer = window.setTimeout(() => {
+      image.src = "";
+      reject(new Error("Image check timed out."));
+    }, timeout);
+    const finish = (result) => {
+      window.clearTimeout(timer);
+      image.onload = null;
+      image.onerror = null;
+      result();
+    };
+    image.onload = () => finish(resolve);
+    image.onerror = () => finish(() => reject(new Error("Image could not be displayed.")));
+    image.src = url;
+  });
+}
+
+async function checkReferences(markdown, repository, source) {
+  const documentModel = processMarkdown(markdown, source);
+  const displayableReferences = imageReferences(documentModel);
+  const unsupportedReferences = extractUnsupportedMediaReferences(markdown);
+  const references = [...new Set([...displayableReferences, ...unsupportedReferences])];
+  if (!displayableReferences.length) {
+    return { documentModel, references, unavailable: unsupportedReferences };
+  }
+
+  const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
+  try {
+    const results = await Promise.all(displayableReferences.map(async (reference) => {
+      try {
+        await probeImage(await manager.getUrl(reference));
+        return null;
+      } catch {
+        return reference;
+      }
+    }));
+    return { documentModel, references, unavailable: [...new Set([...results.filter(Boolean), ...unsupportedReferences])] };
+  } finally {
+    manager.dispose();
+  }
+}
+
+function unavailableMessage(items) {
+  return `The following items are not accessible or cannot be displayed: ${items.join(", ")}. Consider uploading the directory instead.`;
+}
+
+function setAssetStatus(element, message, state = "") {
+  element.textContent = message;
+  element.classList.toggle("is-checking", state === "checking");
+  element.classList.toggle("is-error", state === "error");
+  element.classList.toggle("is-success", state === "success");
 }
 
 async function loadDeck(repository, source, label) {
@@ -234,9 +305,26 @@ async function filesFromDrop(dataTransfer) {
   return [...dataTransfer.files];
 }
 
-function openLocalMarkdown(file) {
+async function openLocalMarkdown(file) {
   const source = { path: pathFor(file) };
-  loadDeck(new LocalRepository(selectedFiles, file), source, file.name);
+  const repository = new LocalRepository(selectedFiles, file);
+  setAssetStatus($("#file-status"), "Checking referenced items…", "checking");
+  try {
+    const markdown = await repository.readText();
+    const result = await checkReferences(markdown, repository, source);
+    if (result.unavailable.length) {
+      setAssetStatus($("#file-status"), unavailableMessage(result.unavailable), "error");
+      return;
+    }
+    setAssetStatus(
+      $("#file-status"),
+      result.references.length ? "All referenced items are accessible." : "No referenced items need checking.",
+      "success",
+    );
+    await loadDeck(repository, source, file.name);
+  } catch (error) {
+    setAssetStatus($("#file-status"), `The presentation could not be checked: ${error.message}`, "error");
+  }
 }
 
 function renderLocalFiles() {
@@ -257,47 +345,88 @@ function renderLocalFiles() {
     button.type = "button";
     button.setAttribute("role", "option");
     button.textContent = pathFor(file);
-    button.addEventListener("click", () => openLocalMarkdown(file));
+    button.addEventListener("click", () => { void openLocalMarkdown(file); });
     list.append(button);
   }
 }
 
-function receiveFiles(files) {
+async function receiveFiles(files) {
   selectedFiles = [...files];
   markdownFiles = selectedFiles
     .filter((file) => /\.(md|markdown)$/i.test(file.name))
     .sort((a, b) => pathFor(a).localeCompare(pathFor(b)));
   if (!markdownFiles.length) {
-    $("#file-status").textContent = "No Markdown file found in that selection.";
+    setAssetStatus($("#file-status"), "No Markdown file found in that selection.", "error");
     $("#local-browser").hidden = true;
     return;
   }
-  $("#file-status").textContent = `${markdownFiles.length} presentation${markdownFiles.length === 1 ? "" : "s"} · ${selectedFiles.length - markdownFiles.length} supporting file${selectedFiles.length - markdownFiles.length === 1 ? "" : "s"}`;
+  setAssetStatus(
+    $("#file-status"),
+    `${markdownFiles.length} presentation${markdownFiles.length === 1 ? "" : "s"} · ${selectedFiles.length - markdownFiles.length} supporting file${selectedFiles.length - markdownFiles.length === 1 ? "" : "s"}`,
+  );
   $("#local-browser").hidden = markdownFiles.length === 1;
   $("#local-filter").value = "";
   renderLocalFiles();
-  if (markdownFiles.length === 1) openLocalMarkdown(markdownFiles[0]);
+  if (markdownFiles.length === 1) await openLocalMarkdown(markdownFiles[0]);
 }
 
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("is-active", item === tab));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("is-active", panel.dataset.panel === tab.dataset.tab));
+  document.querySelectorAll(".tab").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
 }));
 
-$("#present-paste").addEventListener("click", () => loadDeck(new InlineRepository($("#markdown-input").value), { path: "slides.md" }, "Pasted deck"));
-$("#file-input").addEventListener("change", (event) => receiveFiles(event.target.files));
-$("#folder-input").addEventListener("change", (event) => receiveFiles(event.target.files));
+let pasteCheckTimer;
+let pasteCheckRequest = 0;
+
+async function checkPastedMarkdown({ present = false } = {}) {
+  const request = ++pasteCheckRequest;
+  const markdown = $("#markdown-input").value;
+  const repository = new InlineRepository(markdown);
+  const source = { path: "slides.md" };
+  setAssetStatus($("#paste-status"), "Checking referenced items…", "checking");
+  try {
+    const result = await checkReferences(markdown, repository, source);
+    if (request !== pasteCheckRequest) return false;
+    if (result.unavailable.length) {
+      setAssetStatus($("#paste-status"), unavailableMessage(result.unavailable), "error");
+      return false;
+    }
+    setAssetStatus(
+      $("#paste-status"),
+      result.references.length ? "All referenced items are accessible." : "No referenced items need checking.",
+      "success",
+    );
+    if (present) await loadDeck(repository, source, "Pasted deck");
+    return true;
+  } catch (error) {
+    if (request === pasteCheckRequest) {
+      setAssetStatus($("#paste-status"), `The Markdown could not be checked: ${error.message}`, "error");
+    }
+    return false;
+  }
+}
+
+function schedulePasteCheck() {
+  window.clearTimeout(pasteCheckTimer);
+  pasteCheckTimer = window.setTimeout(() => { void checkPastedMarkdown(); }, 350);
+}
+
+$("#present-paste").addEventListener("click", () => { void checkPastedMarkdown({ present: true }); });
+$("#markdown-input").addEventListener("input", schedulePasteCheck);
+$("#file-input").addEventListener("change", (event) => { void receiveFiles(event.target.files); });
+$("#folder-input").addEventListener("change", (event) => { void receiveFiles(event.target.files); });
 $("#local-filter").addEventListener("input", renderLocalFiles);
 
 const dropZone = $("#drop-zone");
 for (const eventName of ["dragenter", "dragover"]) dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.add("is-dragging"); });
 for (const eventName of ["dragleave", "drop"]) dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove("is-dragging"); });
 dropZone.addEventListener("drop", async (event) => {
-  $("#file-status").textContent = "Reading the dropped directory…";
+  setAssetStatus($("#file-status"), "Reading the dropped selection…", "checking");
   try {
-    receiveFiles(await filesFromDrop(event.dataTransfer));
+    await receiveFiles(await filesFromDrop(event.dataTransfer));
   } catch (error) {
-    $("#file-status").textContent = `The dropped directory could not be read: ${error.message}`;
+    setAssetStatus($("#file-status"), `The dropped selection could not be read: ${error.message}`, "error");
   }
 });
 
@@ -323,3 +452,4 @@ document.addEventListener("keydown", (event) => {
 });
 
 setScreen("home");
+schedulePasteCheck();

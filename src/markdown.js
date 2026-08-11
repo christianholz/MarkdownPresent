@@ -61,6 +61,25 @@ export function preprocessJekyll(markdown) {
     .replace(/\{%\s*link\s+([^%]+?)\s*%\}/g, "$1");
 }
 
+export function extractUnsupportedMediaReferences(markdown) {
+  const { body } = extractFrontMatter(markdown);
+  const source = preprocessJekyll(body)
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/~~~[\s\S]*?~~~/g, "");
+  const references = [];
+  const attributePatterns = [
+    /<(?:video|audio|source|track|embed|iframe)\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi,
+    /<object\b[^>]*\bdata\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/gi,
+  ];
+  for (const pattern of attributePatterns) {
+    for (const match of source.matchAll(pattern)) {
+      const reference = (match[1] || match[2] || match[3] || "").trim();
+      if (reference) references.push(reference);
+    }
+  }
+  return [...new Set(references)];
+}
+
 function splitAtSlideBoundaries(markdown) {
   const lines = markdown.split("\n");
   const slides = [];
