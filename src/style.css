@@ -195,7 +195,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .comment-save-menu button { padding: 9px 10px; border: 0; border-radius: 8px; background: rgba(255,255,255,.09); color: white; text-align: left; cursor: pointer; font-size: 13px; }
 .comment-save-menu button:hover, .comment-save-menu button:focus-visible { outline: none; background: rgba(255,255,255,.16); }
 .comment-save-menu button.is-secondary { color: rgba(255,255,255,.6); background: transparent; }
-.slide-outline { position: fixed; z-index: 7; top: 0; right: 0; bottom: 0; width: min(360px, 88vw); display: flex; flex-direction: column; padding: 18px; border-left: 1px solid rgba(255,255,255,.12); color: white; background: rgba(20,22,23,.96); box-shadow: -20px 0 55px rgba(0,0,0,.28); backdrop-filter: blur(16px); }
+.slide-outline { position: fixed; z-index: 7; top: 0; right: 0; bottom: 0; width: min(360px, 88vw); display: flex; flex-direction: column; padding: 18px; border-left: 1px solid rgba(255,255,255,.12); color: white; background: rgba(20,22,23,.96); box-shadow: -20px 0 55px rgba(0,0,0,.28); backdrop-filter: blur(16px); user-select: none; }
 .slide-outline-header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 14px 8px; border-bottom: 1px solid rgba(255,255,255,.1); }
 .slide-outline-header strong { font-size: 13px; letter-spacing: .04em; }
 .slide-outline-header button { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; color: white; background: transparent; cursor: pointer; }
