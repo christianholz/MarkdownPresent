@@ -8,6 +8,7 @@ A static, browser-only Markdown presentation renderer. The standalone page offer
 - Present formatted text, nested lists, tables, code, math, and images
 - Adapt image layouts to the available space and open images in a focused viewer
 - Navigate with the keyboard, jump through a slide outline, and present fullscreen
+- Add comments directly to slides and export annotated Markdown or a comments-only document
 - Present Markdown files directly from GitHub with the Chrome extension
 
 ## Run locally
@@ -38,6 +39,8 @@ Download the [latest Chrome extension](https://github.com/christianholz/MeetingP
 To build it from source instead, run `pnpm build` and load `dist/extension`.
 
 On Markdown file pages under `https://github.com/eth-siplab-team/`, the extension adds a **Present** button beside GitHub's **Raw** button. It supports both `/blob/` and `/tree/` file URLs. Clicking it reads the adjacent Raw URL with the GitHub session already active in that tab and opens the deck in an extension tab. If Raw cannot be read, it falls back to GitHub's rendered Markdown article. The extension is scoped to that organization in `extension/public/manifest.json` and `extension/public/content.js`.
+
+Right-click a slide to add a dated comment. The download control can save the original Markdown with comments inserted as HTML comments, save a comments-only Markdown document, or—in the Chrome extension—download the annotated file and open the corresponding GitHub upload page.
 
 The extension build is self-contained in `dist/extension`; it does not depend on the standalone viewer.
 

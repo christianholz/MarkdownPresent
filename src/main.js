@@ -5,6 +5,7 @@ import { AssetManager } from "./assets.js";
 import { Presentation } from "./presentation.js";
 import { SlideOutline } from "./slide-outline.js";
 import { CONFIG } from "./config.js";
+import { AnnotationManager } from "./annotations.js";
 
 const SAMPLE = `# A small deck
 
@@ -96,6 +97,7 @@ document.querySelector("#app").innerHTML = `
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
       <button id="next" aria-label="Next slide">→</button>
+      <button id="download-comments" aria-label="Download comments" title="Download comments">⇩</button>
     </nav>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
@@ -112,6 +114,7 @@ document.querySelector("#app").innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 let presentation;
 let outline;
+let annotations;
 let selectedFiles = [];
 let markdownFiles = [];
 
@@ -210,6 +213,20 @@ async function loadDeck(repository, source, label) {
       },
     });
     await presentation.create(documentModel, manager);
+    annotations?.destroy();
+    const title = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
+      || documentModel.slides.find((slide) => slide.title)?.title?.textContent?.trim()
+      || label
+      || "Presentation";
+    annotations = new AnnotationManager({
+      stage: $("#stage"),
+      deck: $(".deck-screen"),
+      downloadButton: $("#download-comments"),
+      presentation,
+      sourceMarkdown: markdown,
+      sourcePath: source.path,
+      title,
+    });
     outline ||= new SlideOutline({
       panel: $("#slide-outline"),
       list: $("#outline-list"),
@@ -433,7 +450,10 @@ dropZone.addEventListener("drop", async (event) => {
 
 $("#previous").addEventListener("click", () => presentation?.previous());
 $("#next").addEventListener("click", () => presentation?.next());
-$("#back-home").addEventListener("click", () => { outline?.close(); setScreen("home"); });
+$("#back-home").addEventListener("click", () => {
+  const close = () => { outline?.close(); setScreen("home"); };
+  if (annotations) annotations.requestClose(close); else close();
+});
 $("#error-home").addEventListener("click", () => setScreen("home"));
 $("#fullscreen").addEventListener("click", toggleFullscreen);
 

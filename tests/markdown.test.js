@@ -5,6 +5,7 @@ import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
 import { fittedImageStackWidth } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
+import { annotatedMarkdown, commentsMarkdown, markdownInsertionOffset } from "../src/annotations.js";
 
 describe("Markdown slide parsing", () => {
   it("covers all seven layouts in the example deck", () => {
@@ -108,5 +109,25 @@ describe("slide outline labels", () => {
   it("uses headings and supplies a readable fallback for untitled slides", () => {
     expect(slideOutlineLabel({ title: { textContent: "  Results  " } }, 2)).toBe("Results");
     expect(slideOutlineLabel({ title: null }, 3)).toBe("Slide 4");
+  });
+});
+
+describe("presentation comments", () => {
+  it("places annotations after whole formatted constructs and punctuation", () => {
+    expect(markdownInsertionOffset("A **two word phrase**, then more.", "two word phrase", 0)).toBe(22);
+    expect(markdownInsertionOffset("Visit [the project](https://example.com).", "the project", 0)).toBe(41);
+  });
+
+  it("exports annotations at their recorded source positions", () => {
+    expect(annotatedMarkdown("One. Two.", [
+      { date: "2026-08-12", text: "  Revisit -- this  ", sourceOffset: 4 },
+    ])).toBe("One. <!-- 2026-08-12: Revisit — this --> Two.");
+  });
+
+  it("exports a comments-only Markdown document", () => {
+    expect(commentsMarkdown("Quarterly review", [
+      { date: "2026-08-12", text: "Clarify this result" },
+      { date: "2026-08-13", text: "Add the comparison" },
+    ])).toBe("# Quarterly review comments\n\n2026-08-12: Clarify this result\n\n2026-08-13: Add the comparison\n");
   });
 });

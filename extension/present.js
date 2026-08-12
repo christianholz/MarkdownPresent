@@ -5,6 +5,7 @@ import { processMarkdown, processRenderedHtml } from "../src/markdown.js";
 import { Presentation } from "../src/presentation.js";
 import { GithubPageRepository } from "../src/repository.js";
 import { SlideOutline } from "../src/slide-outline.js";
+import { AnnotationManager } from "../src/annotations.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -22,6 +23,7 @@ document.querySelector("#app").innerHTML = `
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
       <button id="next" aria-label="Next slide">→</button>
+      <button id="download-comments" aria-label="Download comments" title="Download comments">⇩</button>
     </nav>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
@@ -37,6 +39,7 @@ document.querySelector("#app").innerHTML = `
 const $ = (selector) => document.querySelector(selector);
 let presentation;
 let outline;
+let annotations;
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
@@ -53,6 +56,13 @@ function updateSlideHash(index) {
   const hash = hashParameters();
   hash.set("slide", String(index + 1));
   history.replaceState(null, "", `#${hash}`);
+}
+
+function githubUploadUrl(source) {
+  const directory = source.path.split("/").slice(0, -1);
+  const parts = [source.owner, source.repo, "upload", source.ref, ...directory]
+    .map((part) => encodeURIComponent(part));
+  return `https://github.com/${parts.join("/")}`;
 }
 
 async function toggleFullscreen() {
@@ -86,6 +96,20 @@ async function boot() {
       },
     });
     await presentation.create(documentModel, manager);
+    const title = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
+      || documentModel.slides.find((slide) => slide.title)?.title?.textContent?.trim()
+      || payload.source.path.split("/").pop()
+      || "Presentation";
+    annotations = new AnnotationManager({
+      stage: $("#stage"),
+      deck: $(".deck-screen"),
+      downloadButton: $("#download-comments"),
+      presentation,
+      sourceMarkdown: payload.markdown || "",
+      sourcePath: payload.source.path,
+      title,
+      onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
+    });
     outline = new SlideOutline({
       panel: $("#slide-outline"),
       list: $("#outline-list"),
@@ -105,7 +129,9 @@ async function boot() {
 
 $("#previous").addEventListener("click", () => presentation?.previous());
 $("#next").addEventListener("click", () => presentation?.next());
-$("#close").addEventListener("click", () => window.close());
+$("#close").addEventListener("click", () => {
+  if (annotations) annotations.requestClose(() => window.close()); else window.close();
+});
 $("#close-error").addEventListener("click", () => window.close());
 $("#fullscreen").addEventListener("click", toggleFullscreen);
 

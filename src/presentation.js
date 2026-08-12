@@ -22,6 +22,12 @@ export class Presentation {
     this.imagePopoverTrigger = null;
     this.escapeLockRequest = 0;
     this.handleStageClick = (event) => {
+      if (this.imagePopover) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.target.closest?.(".image-popover-image, .image-popover-close")) this.closeImagePopover(true);
+        return;
+      }
       const image = event.target.closest?.(".image-slot img");
       if (image && this.stage.contains(image)) this.openImagePopover(image);
     };
@@ -173,7 +179,11 @@ export class Presentation {
     image.alt = sourceImage.alt;
     image.decoding = "async";
 
-    popover.addEventListener("click", (event) => event.stopPropagation());
+    popover.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.target === popover) this.closeImagePopover(true);
+    });
     popover.append(close, image);
     slide.append(popover);
     this.imagePopover = popover;
@@ -214,6 +224,11 @@ export class Presentation {
     const renderedHeight = image.naturalHeight * scale;
     const cornerX = inset + (availableWidth - renderedWidth) / 2;
     const cornerY = inset + (availableHeight - renderedHeight) / 2;
+    image.style.inset = "auto";
+    image.style.left = `${cornerX}px`;
+    image.style.top = `${cornerY}px`;
+    image.style.width = `${renderedWidth}px`;
+    image.style.height = `${renderedHeight}px`;
     close.style.left = `${cornerX - close.offsetWidth / 2}px`;
     close.style.top = `${cornerY - close.offsetHeight / 2}px`;
   }
