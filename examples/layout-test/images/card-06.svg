@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" role="img" aria-labelledby="title desc">
+  <title id="title">Layout card six</title><desc id="desc">Plum test image numbered six</desc>
+  <rect width="800" height="450" fill="#774d68"/><rect x="550" y="70" width="180" height="310" rx="90" fill="#a97996"/>
+  <text x="55" y="82" fill="#f5e8f0" font-family="Arial, sans-serif" font-size="26" font-weight="700">ORDER 6 OF 8</text>
+  <text x="52" y="344" fill="white" font-family="Georgia, serif" font-size="180">06</text>
+</svg>

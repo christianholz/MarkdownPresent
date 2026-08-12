@@ -1,0 +1,32 @@
+.meeting-present-item {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.meeting-present-button {
+  overflow: hidden;
+  padding-inline: var(--base-size-8, 8px) !important;
+  border-radius: var(--borderRadius-medium, 6px) !important;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.meeting-present-button [data-component="buttonContent"] {
+  column-gap: var(--base-size-8, 8px) !important;
+}
+
+.meeting-present-button[aria-disabled="true"] {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.meeting-present-icon {
+  display: block;
+  width: 0;
+  height: 0;
+  margin-right: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 7px solid currentColor;
+}

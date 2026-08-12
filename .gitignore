@@ -1,0 +1,20 @@
+# Dependencies and generated output
+node_modules/
+.pnpm-store/
+dist/
+release/
+coverage/
+
+# Local tooling and caches
+.vite/
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
