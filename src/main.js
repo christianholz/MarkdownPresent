@@ -30,7 +30,7 @@ $$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$`;
 
 document.querySelector("#app").innerHTML = `
   <section class="home-screen" data-screen="home">
-    <header class="brand"><span class="brand-mark">MP</span><span>Meeting Present</span></header>
+    <header class="brand"><span class="brand-mark">MP</span><span>MarkdownPresent</span></header>
     <main class="home-main">
       <div class="intro">
         <p class="eyebrow">Markdown → presentation</p>
@@ -61,7 +61,7 @@ document.querySelector("#app").innerHTML = `
         </div>
         <div class="tab-panel extension-panel" data-panel="extension">
           <p class="field-label">Chrome extension</p>
-          <a class="extension-download" href="https://github.com/christianholz/MeetingPresent/releases/latest/download/meeting-present-chrome-extension.zip">Download the latest extension</a>
+          <a class="extension-download" href="https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip">Download the latest extension</a>
           <ol class="extension-steps">
             <li>Unzip the downloaded file.</li>
             <li>Open <code>chrome://extensions</code> and enable Developer mode.</li>
@@ -242,10 +242,10 @@ async function loadDeck(repository, source, label) {
   } catch (error) { showError(error); }
 }
 
-function pathFor(file) { return file.meetingPresentRelativePath || file.webkitRelativePath || file.name; }
+function pathFor(file) { return file.mdpresentRelativePath || file.webkitRelativePath || file.name; }
 
 function preserveRelativePath(file, path) {
-  Object.defineProperty(file, "meetingPresentRelativePath", {
+  Object.defineProperty(file, "mdpresentRelativePath", {
     value: path.replace(/^\/+/, ""),
     configurable: true,
   });

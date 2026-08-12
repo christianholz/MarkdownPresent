@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Meeting Present for GitHub",
+  "name": "MarkdownPresent for GitHub",
+  "short_name": "mdpresent",
   "version": "0.1",
   "description": "Present Markdown files from eth-siplab-team repositories as slides.",
   "permissions": ["storage"],

@@ -74,7 +74,7 @@ async function boot() {
   try {
     const sourceId = hashParameters().get("source");
     if (!sourceId) throw new Error("The GitHub source was not passed to this tab.");
-    const storageKey = `meeting-present:${sourceId}`;
+    const storageKey = `mdpresent:${sourceId}`;
     const stored = await chrome.storage.local.get(storageKey);
     const payload = stored[storageKey];
     if (!payload) throw new Error("The GitHub source expired. Return to the Markdown file and click Present again.");

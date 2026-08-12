@@ -14,12 +14,12 @@ rm -rf release/site/extension
 
 (
   cd release/site
-  zip -qr ../meeting-present-site.zip .
+  zip -qr ../mdpresent-site.zip .
 )
 
 (
   cd dist/extension
-  zip -qr ../../release/meeting-present-chrome-extension.zip .
+  zip -qr ../../release/mdpresent-chrome-extension.zip .
 )
 
 echo "Release packages written to release/"

@@ -1,5 +1,5 @@
 (() => {
-  const BUTTON_ATTRIBUTE = "data-meeting-present";
+  const BUTTON_ATTRIBUTE = "data-mdpresent";
 
   function sourceFromLocation() {
     const parts = location.pathname.split("/").filter(Boolean).map(decodeURIComponent);
@@ -46,7 +46,7 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== "meeting-present:fetch-asset") return false;
+    if (message?.type !== "mdpresent:fetch-asset") return false;
     const current = sourceFromLocation();
     const requested = message.source;
     if (!current || !requested || current.owner !== requested.owner || current.repo !== requested.repo || current.ref !== requested.ref) {
@@ -71,7 +71,7 @@
 
   function createButton(rawButton, source) {
     const wrapper = document.createElement("div");
-    wrapper.className = "meeting-present-item";
+    wrapper.className = "mdpresent-item";
     wrapper.setAttribute(BUTTON_ATTRIBUTE, "");
 
     const button = rawButton.cloneNode(true);
@@ -83,7 +83,7 @@
     [...button.classList]
       .filter((className) => className.startsWith("BlobViewHeader-module__LinkButton__"))
       .forEach((className) => button.classList.remove(className));
-    button.classList.add("meeting-present-button");
+    button.classList.add("mdpresent-button");
     button.title = "Present this Markdown file";
     button.setAttribute("aria-label", "Present this Markdown file");
 
@@ -91,7 +91,7 @@
     const label = button.querySelector('[data-component="text"]') || document.createElement("span");
     label.textContent = "Present";
     const icon = document.createElement("span");
-    icon.className = "meeting-present-icon";
+    icon.className = "mdpresent-icon";
     icon.setAttribute("data-component", "leadingVisual");
     icon.setAttribute("aria-hidden", "true");
     content.prepend(icon);
@@ -102,11 +102,11 @@
       button.setAttribute("aria-disabled", "true");
       try {
         const payload = await sourcePayload(rawButton, source);
-        const result = await chrome.runtime.sendMessage({ type: "meeting-present:open", payload });
+        const result = await chrome.runtime.sendMessage({ type: "mdpresent:open", payload });
         if (!result?.ok) throw new Error(result?.error || "The presentation tab could not open.");
       } catch (error) {
         button.title = error.message;
-        console.error("Meeting Present:", error);
+        console.error("MarkdownPresent:", error);
       } finally {
         button.removeAttribute("aria-disabled");
       }

@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: meeting-present-release-${{ github.ref }}
+  group: mdpresent-release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -30,4 +30,4 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/*.zip --verify-tag --generate-notes --title "Meeting Present $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" release/*.zip --verify-tag --generate-notes --title "MarkdownPresent $GITHUB_REF_NAME"

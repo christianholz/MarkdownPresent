@@ -12,7 +12,7 @@ export class LocalRepository {
     this.documentFile = documentFile;
     this.files = new Map();
     for (const file of files) {
-      const relative = file.meetingPresentRelativePath || file.webkitRelativePath || file.name;
+      const relative = file.mdpresentRelativePath || file.webkitRelativePath || file.name;
       this.files.set(normalizeLocalPath(relative), file);
       this.files.set(normalizeLocalPath(file.name), file);
       const withoutTopFolder = relative.includes("/") ? relative.split("/").slice(1).join("/") : relative;
@@ -46,7 +46,7 @@ export class GithubPageRepository {
   async readText() { return this.markdown; }
   async readBlob(path) {
     const result = await chrome.runtime.sendMessage({
-      type: "meeting-present:asset",
+      type: "mdpresent:asset",
       sourceTabId: this.sourceTabId,
       source: this.source,
       path,

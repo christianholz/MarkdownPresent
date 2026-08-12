@@ -1,4 +1,4 @@
-# Meeting Present
+# MarkdownPresent
 
 A static, browser-only Markdown presentation renderer. The standalone page offers folder upload, Chrome-extension installation instructions, and direct Markdown paste; the extension presents Markdown files directly from GitHub.
 
@@ -26,7 +26,7 @@ Open the URL Vite prints. A server is needed during development because the sour
 
 The source card has three tabs:
 
-1. **Upload folder** accepts a directory, a Markdown file, or a selection containing Markdown and supporting assets. If the folder has several `.md`/`.markdown` files, Meeting Present displays a filterable presentation picker. Image paths are resolved relative to the selected Markdown file.
+1. **Upload folder** accepts a directory, a Markdown file, or a selection containing Markdown and supporting assets. If the folder has several `.md`/`.markdown` files, MarkdownPresent displays a filterable presentation picker. Image paths are resolved relative to the selected Markdown file.
 2. **Chrome extension** gives the short unpacked-extension installation steps.
 3. **Paste directly** accepts Markdown in the page.
 
@@ -34,7 +34,7 @@ Before opening an uploaded or pasted deck, the page checks every referenced imag
 
 ## Chrome extension
 
-Download the [latest Chrome extension](https://github.com/christianholz/MeetingPresent/releases/latest/download/meeting-present-chrome-extension.zip) and extract the ZIP. Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted folder.
+Download the [latest Chrome extension](https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip) and extract the ZIP. Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted folder.
 
 To build it from source instead, run `pnpm build` and load `dist/extension`.
 
@@ -73,10 +73,12 @@ The layouts in `src/templates/` are ordinary HTML files. Vite imports them as so
 
 ## Publishing
 
-Pushing a version tag runs the GitHub Actions workflow, tests and builds the standalone page and Chrome extension, and creates a GitHub Release with two independent downloads:
+Every push to `main` tests and builds the standalone page, runs it through Jekyll, and deploys it to [mdpresent.siplab.org](https://mdpresent.siplab.org). The Chrome extension is not part of the Pages deployment.
 
-- `meeting-present-site.zip`
-- `meeting-present-chrome-extension.zip`
+Pushing a version tag runs the separate release workflow, tests and builds both the standalone page and Chrome extension, and creates a GitHub Release with two independent downloads:
+
+- `mdpresent-site.zip`
+- `mdpresent-chrome-extension.zip`
 
 For example:
 
@@ -85,4 +87,4 @@ git tag v0.1
 git push origin v0.1
 ```
 
-Run `pnpm package` after `pnpm build` to generate the same ZIP files locally in `release/`.
+Run `pnpm package` after `pnpm build` to generate the same ZIP files locally in `release/`. Run `pnpm build:jekyll` to prepare the standalone site locally in `.jekyll-source/` using the same pre-Jekyll step as the Pages workflow.
