@@ -40,7 +40,7 @@ function nearestTextAnchor(slide, clientX, clientY) {
   const walker = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
-      if (node.parentElement?.closest(".slide-comment, .comment-editor, .comment-context-menu, .image-popover")) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu, .image-popover")) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -232,13 +232,14 @@ export class AnnotationManager {
     document.addEventListener("keydown", this.handleKeydown, true);
     window.addEventListener("beforeunload", this.handleBeforeUnload);
     downloadButton.addEventListener("click", this.handleDownload);
+    this.syncDownloadButton();
   }
 
   get dirty() { return this.comments.length > 0 && this.revision !== this.savedRevision; }
 
   onContextMenu(event) {
     const slide = event.target.closest?.(".slide.is-active");
-    if (!slide || event.target.closest(".image-popover, .comment-editor, .slide-comment")) return;
+    if (!slide || event.target.closest(".image-popover, .comment-editor, .slide-comment, .slide-comment-card")) return;
     event.preventDefault();
     event.stopPropagation();
     this.dismissMenus();
@@ -286,6 +287,12 @@ export class AnnotationManager {
       <label><span>${displayDate(date)}</span><textarea rows="3" aria-label="Comment" required></textarea></label>
       <div><button type="button" data-action="cancel">Cancel</button><button type="submit">Add comment</button></div>`;
     editor.addEventListener("click", (event) => event.stopPropagation());
+    editor.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        editor.requestSubmit();
+      }
+    });
     editor.querySelector('[data-action="cancel"]').addEventListener("click", () => this.closeEditor());
     editor.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -321,6 +328,7 @@ export class AnnotationManager {
     comment.marker = marker;
     this.comments.push(comment);
     this.revision += 1;
+    this.syncDownloadButton();
     this.presentation.fitCurrent();
     this.pendingAnchor = null;
   }
@@ -332,7 +340,10 @@ export class AnnotationManager {
     marker.setAttribute("role", "button");
     marker.setAttribute("aria-label", `Comment from ${displayDate(comment.date)}`);
     marker.innerHTML = `<span class="slide-comment-dot" aria-hidden="true"></span><span class="slide-comment-card"><strong>${displayDate(comment.date)}</strong><span></span></span>`;
-    marker.querySelector(".slide-comment-card > span").textContent = comment.text;
+    const card = marker.querySelector(".slide-comment-card");
+    marker.commentCard = card;
+    card.querySelector(":scope > span").textContent = comment.text;
+    card.addEventListener("click", (event) => event.stopPropagation());
     const toggle = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -340,7 +351,13 @@ export class AnnotationManager {
       this.collapseComments(marker);
       marker.classList.toggle("is-expanded", expanding);
       marker.setAttribute("aria-expanded", String(expanding));
-      if (expanding) this.positionCommentCard(marker);
+      if (expanding) {
+        marker.closest(".slide")?.append(card);
+        card.classList.add("is-floating");
+        this.positionCommentCard(marker);
+      } else {
+        this.parkCommentCard(marker);
+      }
     };
     marker.addEventListener("click", toggle);
     marker.addEventListener("keydown", (event) => {
@@ -350,25 +367,26 @@ export class AnnotationManager {
   }
 
   positionCommentCard(marker) {
-    const card = marker.querySelector(".slide-comment-card");
+    const card = marker.commentCard;
     const slide = marker.closest(".slide");
     if (!card || !slide) return;
-    marker.classList.remove("opens-below");
-    card.style.transform = "translateX(-50%)";
     const slideRect = slide.getBoundingClientRect();
-    let cardRect = card.getBoundingClientRect();
-    if (cardRect.top < slideRect.top + 8) {
-      marker.classList.add("opens-below");
-      cardRect = card.getBoundingClientRect();
-    }
-    let shift = 0;
-    if (cardRect.left < slideRect.left + 8) shift += slideRect.left + 8 - cardRect.left;
-    if (cardRect.right + shift > slideRect.right - 8) shift -= cardRect.right + shift - (slideRect.right - 8);
-    card.style.transform = `translateX(calc(-50% + ${shift}px))`;
+    const markerRect = marker.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const gap = 6;
+    const left = Math.max(8, Math.min(
+      markerRect.left - slideRect.left + markerRect.width / 2 - cardRect.width / 2,
+      slide.clientWidth - cardRect.width - 8,
+    ));
+    const above = markerRect.top - slideRect.top - cardRect.height - gap;
+    const below = markerRect.bottom - slideRect.top + gap;
+    const top = above >= 8 ? above : Math.min(below, slide.clientHeight - cardRect.height - 8);
+    card.style.left = `${left}px`;
+    card.style.top = `${Math.max(8, top)}px`;
   }
 
   onStageClick(event) {
-    if (event.target.closest?.(".slide-comment, .comment-editor, .comment-context-menu")) return;
+    if (event.target.closest?.(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu")) return;
     this.collapseComments();
     this.removeContextMenu();
   }
@@ -495,14 +513,25 @@ export class AnnotationManager {
       if (marker !== except) {
         marker.classList.remove("is-expanded");
         marker.setAttribute("aria-expanded", "false");
+        this.parkCommentCard(marker);
       }
     });
+  }
+
+  parkCommentCard(marker) {
+    const card = marker.commentCard;
+    if (!card) return;
+    card.classList.remove("is-floating");
+    card.style.removeProperty("left");
+    card.style.removeProperty("top");
+    marker.append(card);
   }
 
   removeContextMenu() { this.deck.querySelector(".comment-context-menu")?.remove(); }
   closeEditor() { this.deck.querySelector(".comment-editor")?.remove(); this.pendingAnchor = null; }
   closeSaveMenu() { this.deck.querySelector(".comment-save-menu")?.remove(); }
   dismissMenus() { this.removeContextMenu(); this.closeEditor(); this.closeSaveMenu(); }
+  syncDownloadButton() { this.downloadButton.hidden = this.comments.length === 0; }
 
   destroy() {
     this.dismissMenus();
@@ -512,5 +541,6 @@ export class AnnotationManager {
     document.removeEventListener("keydown", this.handleKeydown, true);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
     this.downloadButton.removeEventListener("click", this.handleDownload);
+    this.downloadButton.hidden = true;
   }
 }

@@ -168,15 +168,14 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .comment-editor > div { display: flex; justify-content: flex-end; gap: 7px; margin-top: 9px; }
 .comment-editor button { padding: 7px 10px; border: 0; border-radius: 7px; background: var(--soft); color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 650; }
 .comment-editor button[type="submit"] { background: var(--ink); color: white; }
-.slide-comment { position: relative; z-index: 3; display: inline-flex; width: clamp(12px, 1.25cqw, 18px); height: clamp(12px, 1.25cqw, 18px); margin: 0 .08em 0 .13em; vertical-align: .08em; cursor: pointer; outline: none; }
+.slide-comment { position: relative; z-index: 3; display: inline-flex; width: clamp(18px, 1.875cqw, 27px); height: clamp(18px, 1.875cqw, 27px); margin: 0 .08em 0 .13em; vertical-align: .08em; cursor: pointer; outline: none; }
 .slide-comment.is-free-positioned { position: absolute; margin: 0; }
 .slide-comment-dot { display: block; width: 100%; height: 100%; border: 1.5px solid rgba(255,255,255,.92); border-radius: 50% 50% 50% 15%; background: var(--accent); box-shadow: 0 2px 5px rgba(20,24,25,.27); transform: rotate(-10deg); }
 .slide-comment:focus-visible .slide-comment-dot { box-shadow: 0 0 0 2px var(--slide-paper), 0 0 0 4px var(--accent); }
-.slide-comment-card { position: absolute; z-index: 4; left: 50%; bottom: calc(100% + .28em); display: none; width: min(270px, 44cqw); padding: 10px 11px; border: 1px solid rgba(28,33,36,.12); border-radius: 10px; background: rgba(255,255,255,.98); box-shadow: 0 12px 32px rgba(20,24,25,.25); color: var(--ink); font-size: 13px; font-weight: 400; line-height: 1.4; text-align: left; transform: translateX(-50%); white-space: normal; }
+.slide-comment-card { position: absolute; z-index: 20; display: none; width: min(270px, 44cqw); padding: 10px 11px; border: 1px solid rgba(28,33,36,.12); border-radius: 10px; background: rgba(255,255,255,.98); box-shadow: 0 12px 32px rgba(20,24,25,.25); color: var(--ink); font-size: 13px; font-weight: 400; line-height: 1.4; text-align: left; white-space: normal; }
 .slide-comment-card strong { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 .slide-comment.is-expanded { z-index: 8; }
-.slide-comment.is-expanded .slide-comment-card { display: block; }
-.slide-comment.opens-below .slide-comment-card { top: calc(100% + .28em); bottom: auto; }
+.slide-comment-card.is-floating { display: block; }
 .image-loading { color: #8c8b85; font-size: 11px; }
 .image-error { padding: 10px; color: #9b3e36; font-size: 11px; text-align: center; }
 .slide.is-overflowing::before { content: "Content was fitted to its minimum size"; position: absolute; left: 4%; bottom: 2.6%; color: #9b3e36; font-size: 10px; }
@@ -200,7 +199,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide-outline-header strong { font-size: 13px; letter-spacing: .04em; }
 .slide-outline-header button { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; color: white; background: transparent; cursor: pointer; }
 .slide-outline-list { min-height: 0; overflow: auto; padding: 10px 0 24px; }
-.slide-outline-button { width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: start; padding: 10px 9px; border: 0; border-radius: 9px; color: rgba(255,255,255,.72); background: transparent; text-align: left; cursor: pointer; }
+.slide-outline-button { width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 10px 9px; border: 0; border-radius: 9px; color: rgba(255,255,255,.72); background: transparent; text-align: left; cursor: pointer; }
 .slide-outline-button:hover, .slide-outline-button:focus-visible { color: white; background: rgba(255,255,255,.08); outline: none; }
 .slide-outline-button.is-active { color: white; background: rgba(184,75,52,.28); }
 .slide-outline-button.is-highlighted { color: white; background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.3); }

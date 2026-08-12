@@ -22,8 +22,8 @@ document.querySelector("#app").innerHTML = `
       <button id="previous" aria-label="Previous slide">←</button>
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
+      <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
-      <button id="download-comments" aria-label="Download comments" title="Download comments">⇩</button>
     </nav>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
@@ -129,7 +129,8 @@ async function boot() {
 
 $("#previous").addEventListener("click", () => presentation?.previous());
 $("#next").addEventListener("click", () => presentation?.next());
-$("#close").addEventListener("click", () => {
+$("#close").addEventListener("click", (event) => {
+  event.stopPropagation();
   if (annotations) annotations.requestClose(() => window.close()); else window.close();
 });
 $("#close-error").addEventListener("click", () => window.close());

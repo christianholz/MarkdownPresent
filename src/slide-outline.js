@@ -14,6 +14,9 @@ export class SlideOutline {
     this.highlightedIndex = 0;
     this.openingIndex = 0;
     this.scrubPointerId = null;
+    this.scrubStartX = 0;
+    this.scrubStartY = 0;
+    this.scrubMoved = false;
     this.suppressSurfaceClick = false;
     this.dismissPointerId = null;
 
@@ -66,6 +69,9 @@ export class SlideOutline {
         if (event.button !== 0) return;
         event.preventDefault();
         this.scrubPointerId = event.pointerId;
+        this.scrubStartX = event.clientX;
+        this.scrubStartY = event.clientY;
+        this.scrubMoved = false;
         this.list.setPointerCapture?.(event.pointerId);
         this.preview(index);
       });
@@ -154,6 +160,9 @@ export class SlideOutline {
   handlePointerMove(event) {
     if (event.pointerId !== this.scrubPointerId) return;
     event.preventDefault();
+    if (Math.hypot(event.clientX - this.scrubStartX, event.clientY - this.scrubStartY) > 3) {
+      this.scrubMoved = true;
+    }
     if (!this.buttonColumnContains(event.clientX)) {
       this.preview(this.openingIndex);
       return;
@@ -166,9 +175,15 @@ export class SlideOutline {
     if (event.pointerId !== this.scrubPointerId) return;
     event.preventDefault();
     const button = this.buttonColumnContains(event.clientX) ? this.buttonAtPoint(event.clientX, event.clientY) : null;
+    const scrubMoved = this.scrubMoved;
     this.finishScrub(event.pointerId);
-    if (button) this.commit(this.buttons.indexOf(button));
-    else this.preview(this.openingIndex);
+    if (!button) {
+      this.preview(this.openingIndex);
+    } else if (scrubMoved) {
+      this.preview(this.buttons.indexOf(button));
+    } else {
+      this.commit(this.buttons.indexOf(button));
+    }
   }
 
   handlePointerCancel(event) {
@@ -181,6 +196,7 @@ export class SlideOutline {
     if (pointerId === null) return;
     if (this.list.hasPointerCapture?.(pointerId)) this.list.releasePointerCapture(pointerId);
     this.scrubPointerId = null;
+    this.scrubMoved = false;
   }
 
   handleKeydown(event) {

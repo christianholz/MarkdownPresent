@@ -96,8 +96,8 @@ document.querySelector("#app").innerHTML = `
       <button id="previous" aria-label="Previous slide">←</button>
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
+      <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
-      <button id="download-comments" aria-label="Download comments" title="Download comments">⇩</button>
     </nav>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
@@ -450,7 +450,8 @@ dropZone.addEventListener("drop", async (event) => {
 
 $("#previous").addEventListener("click", () => presentation?.previous());
 $("#next").addEventListener("click", () => presentation?.next());
-$("#back-home").addEventListener("click", () => {
+$("#back-home").addEventListener("click", (event) => {
+  event.stopPropagation();
   const close = () => { outline?.close(); setScreen("home"); };
   if (annotations) annotations.requestClose(close); else close();
 });
