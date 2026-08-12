@@ -78,7 +78,11 @@ document.querySelector("#app").innerHTML = `
         <p class="form-error" id="form-error" role="alert"></p>
       </section>
     </main>
-    <footer class="home-footer"><span>Files stay in this browser.</span><span>Arrow keys · Space · F for fullscreen</span></footer>
+    <footer class="home-footer">
+      <span>Files stay in this browser.</span>
+      <span>MarkdownPresent v0.1 · © <a href="https://christianholz.net">Christian Holz</a> 2026 · <a href="https://github.com/christianholz/MarkdownPresent">Source on GitHub</a></span>
+      <span>Arrow keys · Space · F for fullscreen</span>
+    </footer>
   </section>
 
   <section class="loading-screen" data-screen="loading" hidden>

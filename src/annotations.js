@@ -215,12 +215,18 @@ export class AnnotationManager {
     this.pendingAnchor = null;
     this.pendingClose = null;
     this.allowUnload = false;
+    this.unsavedIndicator = document.createElement("p");
+    this.unsavedIndicator.className = "unsaved-comment-count";
+    this.unsavedIndicator.hidden = true;
+    this.unsavedIndicator.setAttribute("aria-live", "polite");
+    deck.append(this.unsavedIndicator);
 
     this.handleContextMenu = (event) => this.onContextMenu(event);
     this.handleStageClick = (event) => this.onStageClick(event);
     this.handleDocumentClick = (event) => this.onDocumentClick(event);
     this.handleKeydown = (event) => this.onKeydown(event);
     this.handleBeforeUnload = (event) => this.onBeforeUnload(event);
+    this.handleViewportChange = () => this.positionUnsavedIndicator();
     this.handleDownload = (event) => {
       event.stopPropagation();
       this.toggleSaveMenu();
@@ -231,6 +237,8 @@ export class AnnotationManager {
     document.addEventListener("click", this.handleDocumentClick);
     document.addEventListener("keydown", this.handleKeydown, true);
     window.addEventListener("beforeunload", this.handleBeforeUnload);
+    window.addEventListener("resize", this.handleViewportChange);
+    document.addEventListener("fullscreenchange", this.handleViewportChange);
     downloadButton.addEventListener("click", this.handleDownload);
     this.syncDownloadButton();
   }
@@ -486,6 +494,7 @@ export class AnnotationManager {
 
   markSaved() {
     this.savedRevision = this.revision;
+    this.syncUnsavedIndicator();
   }
 
   requestClose(callback) {
@@ -531,7 +540,26 @@ export class AnnotationManager {
   closeEditor() { this.deck.querySelector(".comment-editor")?.remove(); this.pendingAnchor = null; }
   closeSaveMenu() { this.deck.querySelector(".comment-save-menu")?.remove(); }
   dismissMenus() { this.removeContextMenu(); this.closeEditor(); this.closeSaveMenu(); }
-  syncDownloadButton() { this.downloadButton.hidden = this.comments.length === 0; }
+  syncDownloadButton() {
+    this.downloadButton.hidden = this.comments.length === 0;
+    this.syncUnsavedIndicator();
+  }
+
+  syncUnsavedIndicator() {
+    const count = Math.max(0, this.revision - this.savedRevision);
+    this.unsavedIndicator.hidden = count === 0;
+    this.unsavedIndicator.textContent = count === 1 ? "1 unsaved comment" : `${count} unsaved comments`;
+    if (count) this.positionUnsavedIndicator();
+  }
+
+  positionUnsavedIndicator() {
+    if (this.unsavedIndicator.hidden) return;
+    const slide = this.presentation.slides[this.presentation.index]?.element;
+    if (!slide?.classList.contains("is-active")) return;
+    const rect = slide.getBoundingClientRect();
+    this.unsavedIndicator.style.top = `${rect.bottom + 7}px`;
+    this.unsavedIndicator.style.right = `${Math.max(0, window.innerWidth - rect.right)}px`;
+  }
 
   destroy() {
     this.dismissMenus();
@@ -540,7 +568,10 @@ export class AnnotationManager {
     document.removeEventListener("click", this.handleDocumentClick);
     document.removeEventListener("keydown", this.handleKeydown, true);
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
+    window.removeEventListener("resize", this.handleViewportChange);
+    document.removeEventListener("fullscreenchange", this.handleViewportChange);
     this.downloadButton.removeEventListener("click", this.handleDownload);
     this.downloadButton.hidden = true;
+    this.unsavedIndicator.remove();
   }
 }
