@@ -420,7 +420,7 @@ function filenameParts(path) {
 }
 
 export class AnnotationManager {
-  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onMarkdownChange, annotationState }) {
+  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onMarkdownChange, onStateChange, onDiscard, discardLabel = "Continue without saving", annotationState }) {
     this.stage = stage;
     this.deck = deck;
     this.downloadButton = downloadButton;
@@ -431,6 +431,10 @@ export class AnnotationManager {
     this.title = title || "Presentation";
     this.onUpload = onUpload;
     this.onMarkdownChange = onMarkdownChange;
+    this.onStateChange = onStateChange;
+    this.onDiscard = onDiscard;
+    this.discardLabel = discardLabel;
+    this.stateChangePromise = Promise.resolve();
     this.comments = (annotationState?.comments || []).map(commentSnapshot);
     this.revision = annotationState?.revision ?? this.comments.length;
     this.savedRevision = annotationState?.savedRevision ?? 0;
@@ -968,9 +972,9 @@ export class AnnotationManager {
     const menu = document.createElement("section");
     menu.className = "comment-save-menu";
     menu.setAttribute("role", "dialog");
-    menu.setAttribute("aria-label", closing ? "Save changes before closing" : "Download changes");
+    menu.setAttribute("aria-label", closing ? "Unsaved modifications" : "Download changes");
     const heading = document.createElement("strong");
-    heading.textContent = closing ? "Save changes before closing?" : "Download changes";
+    heading.textContent = closing ? "This file has unsaved modifications." : "Download changes";
     menu.append(heading);
 
     const actions = [["Download Markdown", () => this.downloadMarkdown()]];
@@ -986,9 +990,10 @@ export class AnnotationManager {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
-      button.addEventListener("click", (event) => {
+      button.addEventListener("click", async (event) => {
         event.stopPropagation();
         action();
+        if (closing) await this.stateChangePromise;
         if (closing && this.dirty) this.openSaveMenu(true);
         else this.finishPendingClose();
       });
@@ -998,9 +1003,10 @@ export class AnnotationManager {
       const discard = document.createElement("button");
       discard.type = "button";
       discard.className = "is-secondary";
-      discard.textContent = "Close without saving";
-      discard.addEventListener("click", (event) => {
+      discard.textContent = this.discardLabel;
+      discard.addEventListener("click", async (event) => {
         event.stopPropagation();
+        await Promise.resolve(this.onDiscard?.()).catch(() => {});
         this.allowUnload = true;
         this.finishPendingClose();
       });
@@ -1089,6 +1095,24 @@ export class AnnotationManager {
     this.downloadButton.setAttribute("aria-label", label);
     this.downloadButton.title = label;
     this.syncUnsavedIndicator();
+    this.notifyStateChange();
+  }
+
+  notifyStateChange() {
+    if (!this.onStateChange) return;
+    const state = {
+      markdown: this.sourceMarkdown,
+      originalSourceMarkdown: this.originalSourceMarkdown,
+      comments: this.comments.map(commentSnapshot),
+      revision: this.revision,
+      savedRevision: this.savedRevision,
+      editCount: this.editCount,
+      dirty: this.dirty,
+    };
+    this.stateChangePromise = this.stateChangePromise
+      .catch(() => {})
+      .then(() => this.onStateChange(state))
+      .catch(() => {});
   }
 
   syncUnsavedIndicator() {

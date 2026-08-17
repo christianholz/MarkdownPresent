@@ -264,6 +264,7 @@ async function loadDeck(repository, source, label, state = {}) {
       sourcePath: source.path,
       title,
       annotationState: state.annotationState,
+      discardLabel: "Return without saving",
       onMarkdownChange: (nextMarkdown, details = {}) => loadDeck(repository, source, label, {
         markdown: nextMarkdown,
         originalMarkdown: details.annotationState?.originalSourceMarkdown ?? originalMarkdown,

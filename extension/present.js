@@ -6,6 +6,7 @@ import { Presentation } from "../src/presentation.js";
 import { GithubPageRepository } from "../src/repository.js";
 import { SlideOutline } from "../src/slide-outline.js";
 import { AnnotationManager } from "../src/annotations.js";
+import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -81,6 +82,27 @@ async function boot() {
     if (!payload) throw new Error("The GitHub source expired. Return to the Markdown file and click Present again.");
 
     const originalMarkdown = payload.markdown || "";
+    const draftKey = extensionDraftKey(payload.source);
+    const storedDraft = originalMarkdown ? (await chrome.storage.local.get(draftKey))[draftKey] : null;
+    const restoredDraft = restorableExtensionDraft(storedDraft, originalMarkdown);
+    let preserveStaleDraft = Boolean(storedDraft && !restoredDraft);
+    let draftWrite = Promise.resolve();
+    const persistDraft = (state) => {
+      draftWrite = draftWrite.catch(() => {}).then(async () => {
+        if (state.dirty) {
+          preserveStaleDraft = false;
+          await chrome.storage.local.set({ [draftKey]: extensionDraftRecord(originalMarkdown, state) });
+        } else if (!preserveStaleDraft) {
+          await chrome.storage.local.remove(draftKey);
+        }
+      });
+      return draftWrite;
+    };
+    const discardDraft = () => {
+      preserveStaleDraft = false;
+      draftWrite = draftWrite.catch(() => {}).then(() => chrome.storage.local.remove(draftKey));
+      return draftWrite;
+    };
     const repository = new GithubPageRepository(payload.source, originalMarkdown, payload.sourceTabId);
     const manager = new AssetManager(repository, payload.source, CONFIG.presentation.assetConcurrency);
     presentation = new Presentation({
@@ -123,6 +145,9 @@ async function boot() {
         sourcePath: payload.source.path,
         title,
         annotationState,
+        discardLabel: "Leave tab without saving",
+        onStateChange: originalMarkdown ? persistDraft : undefined,
+        onDiscard: originalMarkdown ? discardDraft : undefined,
         onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
         onMarkdownChange: originalMarkdown
           ? (nextMarkdown, details = {}) => renderDeck(nextMarkdown, presentation.index, true, details.annotationState)
@@ -135,7 +160,12 @@ async function boot() {
       await Promise.allSettled(presentation.slides.map((_, index) => presentation.loadAssets(index)));
     };
 
-    await renderDeck(originalMarkdown, slideFromHash());
+    await renderDeck(
+      restoredDraft?.markdown ?? originalMarkdown,
+      slideFromHash(),
+      false,
+      restoredDraft?.annotationState,
+    );
     await chrome.storage.local.remove(storageKey);
   } catch (error) { showError(error); }
 }

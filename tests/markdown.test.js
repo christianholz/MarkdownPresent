@@ -6,6 +6,7 @@ import { fittedImageStackWidth } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
 import { annotatedMarkdown, changeStatusText, commentsMarkdown, hasEditableListContent, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
+import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
 import { continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
 
 describe("Markdown slide parsing", () => {
@@ -68,6 +69,42 @@ describe("Markdown slide parsing", () => {
   it("flags embedded media types the slide renderer cannot display", () => {
     const markdown = '<video controls src="media/demo.mp4"></video>\n<audio src="audio/clip.ogg"></audio>';
     expect(extractUnsupportedMediaReferences(markdown)).toEqual(["media/demo.mp4", "audio/clip.ogg"]);
+  });
+});
+
+describe("extension draft recovery", () => {
+  it("uses the complete GitHub source identity for its storage key", () => {
+    expect(extensionDraftKey({ owner: "example org", repo: "deck", ref: "feature/slides", path: "talks/demo.md" }))
+      .toBe("mdpresent:draft:example%20org:deck:feature%2Fslides:talks%2Fdemo.md");
+  });
+
+  it("restores a draft only when it belongs to the current source content", () => {
+    const state = {
+      markdown: "# Edited",
+      originalSourceMarkdown: "# Original",
+      comments: [{ id: "comment-1", text: "Review this" }],
+      revision: 2,
+      savedRevision: 1,
+      editCount: 1,
+    };
+    const record = extensionDraftRecord("# Original", state, 123);
+
+    expect(record).toEqual({
+      version: 1,
+      baseMarkdown: "# Original",
+      markdown: "# Edited",
+      annotationState: {
+        comments: state.comments,
+        revision: 2,
+        savedRevision: 1,
+        editCount: 1,
+        originalSourceMarkdown: "# Original",
+      },
+      updatedAt: 123,
+    });
+    expect(restorableExtensionDraft(record, "# Original")).toBe(record);
+    expect(restorableExtensionDraft(record, "# Changed upstream")).toBeNull();
+    expect(restorableExtensionDraft({ ...record, version: 2 }, "# Original")).toBeNull();
   });
 });
 
