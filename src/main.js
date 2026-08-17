@@ -33,6 +33,29 @@ Behavior shows what happened; reflection helps explain why. Neither view is suff
 ![Observed behavior](./examples/layout-test/images/card-01.svg)
 ![Participant reflection](./examples/layout-test/images/card-06.svg)
 
+## This evidence review deliberately continues onto another slide
+
+The section is intentionally long so the example also demonstrates automatic, image-aware pagination.
+
+### Review the signals as one connected group
+
+- Begin with the participant's goal and the decision they were trying to make
+- Record the first moment where the expected path stopped feeling obvious
+- Separate brief hesitation from a problem that prevents meaningful progress
+- Capture the workaround before explaining the intended interaction
+- Compare observed behavior with the participant's own account of what happened
+- Mark repeated findings that appeared across roles, tasks, or experience levels
+- Connect every proposed change to the signal it is expected to improve
+- Keep unresolved questions visible so the next study can answer them directly
+
+![Review sequence](./examples/layout-test/images/card-02.svg)
+![Decision signals](./examples/layout-test/images/card-07.svg)
+
+## Two images side by side, with no body text
+
+![Journey overview](./examples/layout-test/images/card-04.svg)
+![Outcome overview](./examples/layout-test/images/card-05.svg)
+
 ## A shared rubric keeps the review consistent
 
 | Question | Evidence to capture |
@@ -235,7 +258,7 @@ function setAssetStatus(element, message, state = "") {
 }
 
 async function loadDeck(repository, source, label, state = {}) {
-  setScreen("loading");
+  if (!state.keepDeckVisible) setScreen("loading");
   try {
     const markdown = state.markdown ?? await repository.readText();
     const originalMarkdown = state.originalMarkdown ?? markdown;
@@ -264,13 +287,16 @@ async function loadDeck(repository, source, label, state = {}) {
       downloadButton: $("#download-comments"),
       presentation,
       sourceMarkdown: markdown,
-      originalSourceMarkdown: originalMarkdown,
+      originalSourceMarkdown: state.annotationState?.originalSourceMarkdown ?? originalMarkdown,
       sourcePath: source.path,
       title,
-      onMarkdownChange: (nextMarkdown) => loadDeck(repository, source, label, {
+      annotationState: state.annotationState,
+      onMarkdownChange: (nextMarkdown, details = {}) => loadDeck(repository, source, label, {
         markdown: nextMarkdown,
-        originalMarkdown,
+        originalMarkdown: details.annotationState?.originalSourceMarkdown ?? originalMarkdown,
+        annotationState: details.annotationState,
         index: presentation.index,
+        keepDeckVisible: true,
       }),
     });
     outline ||= new SlideOutline({

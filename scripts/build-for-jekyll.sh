@@ -15,7 +15,5 @@ target_dir="${1:-.jekyll-source}"
 pnpm run build:site
 mkdir -p "$target_dir"
 cp -R dist/. "$target_dir/"
-mkdir -p "$target_dir/examples"
-cp -R examples/layout-test "$target_dir/examples/"
 
 echo "MarkdownPresent site prepared for Jekyll in $target_dir"

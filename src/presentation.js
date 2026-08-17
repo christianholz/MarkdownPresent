@@ -64,11 +64,9 @@ export function continuationTitleText(title, page, total) {
 function addContinuationSuffix(model, page, total) {
   if (!model.title || total < 2) return model;
   const title = cloneNode(model.title);
-  const suffix = document.createElement("span");
-  suffix.dataset.generatedLabel = "";
-  suffix.contentEditable = "false";
-  suffix.textContent = continuationTitleText("", page, total);
-  title.append(suffix);
+  const heading = title.textContent;
+  title.dataset.generatedSuffix = continuationTitleText("", page, total);
+  title.setAttribute("aria-label", continuationTitleText(heading, page, total));
   return { ...model, title };
 }
 
@@ -143,11 +141,9 @@ export function continuationContextText(text) {
 
 function continuationHeadingChunk(chunk) {
   const node = chunk.node.cloneNode(true);
-  const suffix = document.createElement("span");
-  suffix.dataset.generatedLabel = "";
-  suffix.contentEditable = "false";
-  suffix.textContent = continuationContextText("");
-  node.append(suffix);
+  const heading = node.textContent;
+  node.dataset.generatedSuffix = continuationContextText("");
+  node.setAttribute("aria-label", continuationContextText(heading));
   node.dataset.continuationContext = "";
   return { kind: "node", node, continuationContext: true };
 }

@@ -99,8 +99,8 @@ async function boot() {
       onSelect: (index) => presentation?.show(index),
     });
 
-    const renderDeck = async (markdown, requestedIndex) => {
-      setScreen("loading");
+    const renderDeck = async (markdown, requestedIndex, keepDeckVisible = false, annotationState) => {
+      if (!keepDeckVisible) setScreen("loading");
       const documentModel = markdown
         ? processMarkdown(markdown, payload.source)
         : processRenderedHtml(payload.renderedHtml, payload.source);
@@ -118,12 +118,13 @@ async function boot() {
         downloadButton: $("#download-comments"),
         presentation,
         sourceMarkdown: markdown,
-        originalSourceMarkdown: originalMarkdown,
+        originalSourceMarkdown: annotationState?.originalSourceMarkdown ?? originalMarkdown,
         sourcePath: payload.source.path,
         title,
+        annotationState,
         onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
         onMarkdownChange: originalMarkdown
-          ? (nextMarkdown) => renderDeck(nextMarkdown, presentation.index)
+          ? (nextMarkdown, details = {}) => renderDeck(nextMarkdown, presentation.index, true, details.annotationState)
           : undefined,
       });
       outline.setSlides(documentModel.slides);

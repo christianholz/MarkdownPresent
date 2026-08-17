@@ -85,6 +85,34 @@ function nearestTextAnchor(slide, clientX, clientY) {
   return best;
 }
 
+function textAnchorForOccurrence(slide, text, occurrence = 0) {
+  let seen = 0;
+  const atomicElements = new Set();
+  const walker = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu, .image-popover")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  let node;
+  while ((node = walker.nextNode())) {
+    const atomic = outerAtomicInline(node, slide);
+    if (atomic) {
+      if (atomicElements.has(atomic)) continue;
+      atomicElements.add(atomic);
+      if (atomic.textContent.trim() === text && seen++ === occurrence) return { kind: "element", element: atomic };
+      continue;
+    }
+    for (const match of node.textContent.matchAll(WORD_PATTERN)) {
+      if (match[0] === text && seen++ === occurrence) {
+        return { kind: "text", node, start: match.index, end: match.index + match[0].length };
+      }
+    }
+  }
+  return null;
+}
+
 function markerInsertionRange(anchor) {
   const range = document.createRange();
   if (anchor.kind === "element") {
@@ -203,6 +231,36 @@ export function replaceMarkdownRange(sourceMarkdown, start, end, replacement) {
   return `${source.slice(0, start)}${replacement}${source.slice(end)}`;
 }
 
+export function remapCommentOffsets(comments, start, end, original, replacement) {
+  const before = String(original || "");
+  const after = String(replacement || "");
+  let prefix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix
+    && suffix < after.length - prefix
+    && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) suffix += 1;
+  const delta = after.length - before.length;
+  return comments.map((comment) => {
+    const offset = comment.sourceOffset;
+    if (!Number.isInteger(offset) || offset <= start) return { ...comment };
+    if (offset >= end) return { ...comment, sourceOffset: offset + delta };
+    const relative = offset - start;
+    if (relative <= prefix) return { ...comment };
+    if (relative >= before.length - suffix) {
+      return { ...comment, sourceOffset: start + after.length - (before.length - relative) };
+    }
+    return { ...comment, sourceOffset: start + prefix };
+  });
+}
+
+function commentSnapshot(comment) {
+  const { marker, ...snapshot } = comment;
+  return { ...snapshot };
+}
+
 function escapedMarkdownText(text) {
   return String(text || "").replace(/[\\`*_[\]<>]/g, "\\$&");
 }
@@ -228,7 +286,7 @@ function inlineMarkdown(node) {
     const title = node.getAttribute("title");
     return `[${children()}](${href}${title ? ` \"${title.replace(/\"/g, "\\\"")}\"` : ""})`;
   }
-  if (node.matches("br")) return "  \n";
+  if (node.matches("br")) return "<br>";
   return children();
 }
 
@@ -270,6 +328,37 @@ function editedElementMarkdown(element, originalMarkdown) {
   throw new Error("This rendered element cannot be edited as Markdown.");
 }
 
+function listItemMarker(originalMarkdown, offset = 0) {
+  const match = /^(\s*)([-+*]|(\d+)([.)]))(\s+)/.exec(originalMarkdown);
+  if (!match) throw new Error("The list marker could not be located in the Markdown source.");
+  const marker = match[3] ? `${Number(match[3]) + offset}${match[4]}` : match[2];
+  const task = /^(?:\s*(?:[-+*]|\d+[.)])\s+)\[[ xX]\]\s+/.test(originalMarkdown) ? "[ ] " : "";
+  return `${match[1]}${marker}${match[5]}${task}`;
+}
+
+function editedListItemsMarkdown(element, createdItems, originalMarkdown) {
+  const first = editedElementMarkdown(element, originalMarkdown);
+  if (!createdItems.length) return first;
+  const trailing = trailingWhitespace(first);
+  const body = trailing ? first.slice(0, -trailing.length) : first;
+  const additions = createdItems.map((item, index) => `${listItemMarker(originalMarkdown, index + 1)}${directListItemMarkdown(item)}`);
+  return `${body}\n${additions.join("\n")}${trailing}`;
+}
+
+function insertLineBreak(element) {
+  if (document.execCommand?.("insertLineBreak")) return;
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!range || !element.contains(range.startContainer)) return;
+  range.deleteContents();
+  const lineBreak = document.createElement("br");
+  range.insertNode(lineBreak);
+  range.setStartAfter(lineBreak);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 function sourceElementAt(target, slide, slideMarkdown) {
   const element = target.closest?.(EDITABLE_SOURCE_SELECTOR);
   if (!element || !slide.contains(element)) return null;
@@ -305,7 +394,7 @@ function filenameParts(path) {
 }
 
 export class AnnotationManager {
-  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onMarkdownChange }) {
+  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onMarkdownChange, annotationState }) {
     this.stage = stage;
     this.deck = deck;
     this.downloadButton = downloadButton;
@@ -316,9 +405,9 @@ export class AnnotationManager {
     this.title = title || "Presentation";
     this.onUpload = onUpload;
     this.onMarkdownChange = onMarkdownChange;
-    this.comments = [];
-    this.revision = 0;
-    this.savedRevision = 0;
+    this.comments = (annotationState?.comments || []).map(commentSnapshot);
+    this.revision = annotationState?.revision ?? this.comments.length;
+    this.savedRevision = annotationState?.savedRevision ?? 0;
     this.slideStarts = locateSlideStarts(this.sourceMarkdown, presentation.slides);
     this.pendingAnchor = null;
     this.pendingClose = null;
@@ -349,6 +438,7 @@ export class AnnotationManager {
     window.addEventListener("resize", this.handleViewportChange);
     document.addEventListener("fullscreenchange", this.handleViewportChange);
     downloadButton.addEventListener("click", this.handleDownload);
+    this.restoreComments();
     this.syncDownloadButton();
   }
 
@@ -434,37 +524,97 @@ export class AnnotationManager {
 
     this.inlineEdit = {
       element,
+      createdItems: [],
+      handlers: new Map(),
       slideIndex,
       slideStart,
       localStart,
       localEnd,
       originalHtml: element.innerHTML,
       originalMarkdown: slideMarkdown.slice(localStart, localEnd),
+      originalAriaLabel: element.getAttribute("aria-label"),
       committing: false,
     };
-    element.querySelectorAll(":scope > ul, :scope > ol").forEach((list) => {
+    this.lockInlineNestedLists();
+    this.activateInlineElement(element);
+    element.focus({ preventScroll: true });
+    this.placeInlineCaret(element, clientX, clientY);
+  }
+
+  lockInlineNestedLists() {
+    this.inlineEdit?.element.querySelectorAll(":scope > ul, :scope > ol").forEach((list) => {
       list.contentEditable = "false";
       list.dataset.inlineEditLocked = "";
     });
+  }
+
+  unlockInlineNestedLists() {
+    this.inlineEdit?.element.querySelectorAll("[data-inline-edit-locked]").forEach((list) => {
+      list.removeAttribute("contenteditable");
+      delete list.dataset.inlineEditLocked;
+    });
+  }
+
+  activateInlineElement(element) {
+    const edit = this.inlineEdit;
+    if (!edit) return;
     element.contentEditable = "true";
     element.spellcheck = true;
     element.classList.add("is-inline-editing");
     element.setAttribute("role", "textbox");
     element.setAttribute("aria-label", "Edit slide content");
-    element.addEventListener("blur", () => this.commitInlineEditing(), { once: true });
-    element.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        this.cancelInlineEditing();
-      } else if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        event.stopPropagation();
-        this.commitInlineEditing();
-      }
-    });
-    element.focus({ preventScroll: true });
-    this.placeInlineCaret(element, clientX, clientY);
+    const keydown = (event) => this.onInlineEditKeydown(event);
+    const blur = () => this.onInlineEditBlur();
+    edit.handlers.set(element, { keydown, blur });
+    element.addEventListener("keydown", keydown);
+    element.addEventListener("blur", blur);
+  }
+
+  onInlineEditKeydown(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.cancelInlineEditing();
+      return;
+    }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.metaKey || event.ctrlKey) {
+      this.commitInlineEditing();
+    } else if (event.currentTarget.matches("li") && !event.shiftKey) {
+      this.addInlineListItem(event.currentTarget);
+    } else {
+      insertLineBreak(event.currentTarget);
+    }
+  }
+
+  onInlineEditBlur() {
+    window.setTimeout(() => {
+      const edit = this.inlineEdit;
+      if (!edit || edit.committing) return;
+      const focused = document.activeElement;
+      if ([...edit.handlers.keys()].some((element) => element === focused || element.contains(focused))) return;
+      this.commitInlineEditing();
+    }, 0);
+  }
+
+  addInlineListItem(after) {
+    const edit = this.inlineEdit;
+    if (!edit) return;
+    const item = document.createElement("li");
+    item.append(document.createElement("br"));
+    after.after(item);
+    edit.createdItems.push(item);
+    this.activateInlineElement(item);
+    item.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.setStart(item, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    this.presentation.fitCurrent();
   }
 
   placeInlineCaret(element, clientX, clientY) {
@@ -475,57 +625,79 @@ export class AnnotationManager {
     selection.addRange(range);
   }
 
-  finishInlineEditing(element) {
-    element.querySelectorAll("[data-inline-edit-locked]").forEach((list) => {
-      list.removeAttribute("contenteditable");
-      delete list.dataset.inlineEditLocked;
-    });
-    element.removeAttribute("contenteditable");
-    element.removeAttribute("spellcheck");
-    element.removeAttribute("role");
-    element.removeAttribute("aria-label");
-    element.removeAttribute("aria-invalid");
-    element.removeAttribute("title");
-    element.classList.remove("is-inline-editing", "has-inline-edit-error");
+  finishInlineEditing() {
+    const edit = this.inlineEdit;
+    if (!edit) return;
+    this.unlockInlineNestedLists();
+    for (const [element, handlers] of edit.handlers) {
+      element.removeEventListener("keydown", handlers.keydown);
+      element.removeEventListener("blur", handlers.blur);
+      element.removeAttribute("contenteditable");
+      element.removeAttribute("spellcheck");
+      element.removeAttribute("role");
+      if (element === edit.element && edit.originalAriaLabel !== null) element.setAttribute("aria-label", edit.originalAriaLabel);
+      else element.removeAttribute("aria-label");
+      element.removeAttribute("aria-invalid");
+      element.removeAttribute("title");
+      element.classList.remove("is-inline-editing", "has-inline-edit-error");
+    }
   }
 
   cancelInlineEditing() {
     const edit = this.inlineEdit;
     if (!edit || edit.committing) return;
     edit.element.innerHTML = edit.originalHtml;
-    this.finishInlineEditing(edit.element);
+    this.finishInlineEditing();
+    edit.createdItems.forEach((item) => item.remove());
     this.inlineEdit = null;
     this.pendingAnchor = null;
+    this.rebuildCommentMarkers();
   }
 
   async commitInlineEditing() {
     const edit = this.inlineEdit;
     if (!edit || edit.committing) return;
-    edit.element.querySelectorAll("[data-inline-edit-locked]").forEach((list) => {
-      list.removeAttribute("contenteditable");
-      delete list.dataset.inlineEditLocked;
-    });
-    if (edit.element.innerHTML === edit.originalHtml) {
-      this.finishInlineEditing(edit.element);
+    this.unlockInlineNestedLists();
+    if (edit.element.innerHTML === edit.originalHtml && !edit.createdItems.length) {
+      this.finishInlineEditing();
       this.inlineEdit = null;
       this.pendingAnchor = null;
       return;
     }
     edit.committing = true;
     try {
-      const replacement = editedElementMarkdown(edit.element, edit.originalMarkdown);
+      const replacement = edit.element.matches("li")
+        ? editedListItemsMarkdown(edit.element, edit.createdItems, edit.originalMarkdown)
+        : editedElementMarkdown(edit.element, edit.originalMarkdown);
       const absoluteStart = edit.slideStart + edit.localStart;
       const absoluteEnd = edit.slideStart + edit.localEnd;
       const markdown = replaceMarkdownRange(this.sourceMarkdown, absoluteStart, absoluteEnd, replacement);
-      this.finishInlineEditing(edit.element);
-      await this.onMarkdownChange(markdown, { slideIndex: edit.slideIndex, sourceStart: absoluteStart });
+      const comments = remapCommentOffsets(this.comments.map(commentSnapshot), absoluteStart, absoluteEnd, edit.originalMarkdown, replacement);
+      this.finishInlineEditing();
+      await this.onMarkdownChange(markdown, {
+        slideIndex: edit.slideIndex,
+        sourceStart: absoluteStart,
+        annotationState: {
+          comments,
+          revision: this.revision,
+          savedRevision: this.savedRevision,
+          originalSourceMarkdown: this.originalSourceMarkdown,
+        },
+      });
     } catch (error) {
       edit.committing = false;
-      edit.element.contentEditable = "true";
+      this.lockInlineNestedLists();
+      for (const [element, handlers] of edit.handlers) {
+        element.contentEditable = "true";
+        element.setAttribute("role", "textbox");
+        element.setAttribute("aria-label", "Edit slide content");
+        element.classList.add("is-inline-editing");
+        element.addEventListener("keydown", handlers.keydown);
+        element.addEventListener("blur", handlers.blur);
+      }
       edit.element.classList.add("has-inline-edit-error");
       edit.element.setAttribute("aria-invalid", "true");
       edit.element.title = error?.message || String(error);
-      edit.element.addEventListener("blur", () => this.commitInlineEditing(), { once: true });
       edit.element.focus({ preventScroll: true });
     }
   }
@@ -565,15 +737,26 @@ export class AnnotationManager {
     const slideMarkdown = this.presentation.slides[slideIndex]?.model.markdown || "";
     const localOffset = anchor ? markdownInsertionOffset(slideMarkdown, anchor.text, anchor.occurrence) : slideMarkdown.length;
     const sourceOffset = slideStart >= 0 ? slideStart + localOffset : this.sourceMarkdown.length;
-    const comment = { id: crypto.randomUUID(), date, text, slideIndex, sourceOffset };
+    const comment = {
+      id: crypto.randomUUID(),
+      date,
+      text,
+      slideIndex,
+      sourceOffset,
+      anchorText: anchor?.text || "",
+      anchorOccurrence: anchor?.occurrence || 0,
+    };
     const marker = this.createMarker(comment);
 
     if (anchor) markerInsertionRange(anchor).insertNode(marker);
     else {
       const rect = slide.getBoundingClientRect();
       marker.classList.add("is-free-positioned");
-      marker.style.left = `${Math.max(8, Math.min(clientX - rect.left, slide.clientWidth - 30))}px`;
-      marker.style.top = `${Math.max(8, Math.min(clientY - rect.top, slide.clientHeight - 30))}px`;
+      const left = Math.max(8, Math.min(clientX - rect.left, slide.clientWidth - 30));
+      const top = Math.max(8, Math.min(clientY - rect.top, slide.clientHeight - 30));
+      marker.style.left = `${left}px`;
+      marker.style.top = `${top}px`;
+      comment.freePosition = { x: left / slide.clientWidth, y: top / slide.clientHeight };
       slide.append(marker);
     }
 
@@ -585,9 +768,72 @@ export class AnnotationManager {
     this.pendingAnchor = null;
   }
 
+  restoreComments() {
+    for (const comment of this.comments) {
+      const candidates = this.presentation.slides
+        .map((slide, index) => ({ slide, index, start: this.slideStarts[index] }))
+        .filter(({ slide, start }) => start >= 0 && comment.sourceOffset >= start && comment.sourceOffset <= start + (slide.model.markdown || "").length);
+      let placement = null;
+      for (const candidate of candidates) {
+        const anchor = comment.anchorText
+          ? textAnchorForOccurrence(candidate.slide.element, comment.anchorText, comment.anchorOccurrence)
+            || textAnchorForOccurrence(candidate.slide.element, comment.anchorText, 0)
+          : null;
+        if (anchor) {
+          placement = { ...candidate, anchor };
+          break;
+        }
+      }
+      if (!placement) {
+        for (const candidate of candidates) {
+          const localOffset = comment.sourceOffset - candidate.start;
+          const elements = [...candidate.slide.element.querySelectorAll(EDITABLE_SOURCE_SELECTOR)]
+            .filter((element) => Number(element.dataset.sourceStart) <= localOffset && Number(element.dataset.sourceEnd) >= localOffset)
+            .sort((a, b) => (Number(a.dataset.sourceEnd) - Number(a.dataset.sourceStart)) - (Number(b.dataset.sourceEnd) - Number(b.dataset.sourceStart)));
+          if (elements[0]) {
+            placement = { ...candidate, element: elements[0] };
+            break;
+          }
+        }
+      }
+      const target = placement || candidates[0] || {
+        slide: this.presentation.slides[Math.max(0, Math.min(comment.slideIndex || 0, this.presentation.slides.length - 1))],
+        index: Math.max(0, Math.min(comment.slideIndex || 0, this.presentation.slides.length - 1)),
+      };
+      if (!target?.slide?.element) continue;
+      const marker = this.createMarker(comment);
+      if (target.anchor) markerInsertionRange(target.anchor).insertNode(marker);
+      else if (target.element) {
+        const range = document.createRange();
+        range.selectNodeContents(target.element);
+        range.collapse(false);
+        range.insertNode(marker);
+      } else {
+        marker.classList.add("is-free-positioned");
+        const { x = .5, y = .5 } = comment.freePosition || {};
+        marker.style.left = `${x * target.slide.element.clientWidth}px`;
+        marker.style.top = `${y * target.slide.element.clientHeight}px`;
+        target.slide.element.append(marker);
+      }
+      comment.slideIndex = target.index;
+      comment.marker = marker;
+    }
+  }
+
+  rebuildCommentMarkers() {
+    this.comments.forEach((comment) => {
+      this.parkCommentCard(comment.marker);
+      comment.marker?.remove();
+      delete comment.marker;
+    });
+    this.stage.querySelectorAll(".slide-comment").forEach((marker) => marker.remove());
+    this.restoreComments();
+  }
+
   createMarker(comment) {
     const marker = document.createElement("span");
     marker.className = "slide-comment";
+    marker.contentEditable = "false";
     marker.tabIndex = 0;
     marker.setAttribute("role", "button");
     marker.setAttribute("aria-label", `Comment from ${displayDate(comment.date)}`);
@@ -691,9 +937,15 @@ export class AnnotationManager {
     heading.textContent = closing ? "Save changes before closing?" : "Download changes";
     menu.append(heading);
 
-    const actions = [["Download Markdown document", () => this.downloadAnnotated()]];
-    if (this.comments.length && !this.sourceChanged) actions.push(["Download just comments", () => this.downloadComments()]);
-    if (this.onUpload) actions.push(["Download Markdown and open GitHub upload", () => this.downloadAndUpload()]);
+    const actions = [["Download Markdown", () => this.downloadMarkdown()]];
+    if (this.comments.length) {
+      actions.push(["Download Markdown with comments", () => this.downloadMarkdownWithComments()]);
+      actions.push(["Download just comments", () => this.downloadComments()]);
+    }
+    if (this.onUpload) actions.push([
+      this.comments.length ? "Download Markdown with comments and open GitHub upload" : "Download Markdown and open GitHub upload",
+      () => this.downloadAndUpload(),
+    ]);
     for (const [label, action] of actions) {
       const button = document.createElement("button");
       button.type = "button";
@@ -701,7 +953,8 @@ export class AnnotationManager {
       button.addEventListener("click", (event) => {
         event.stopPropagation();
         action();
-        this.finishPendingClose();
+        if (closing && this.dirty) this.openSaveMenu(true);
+        else this.finishPendingClose();
       });
       menu.append(button);
     }
@@ -721,10 +974,19 @@ export class AnnotationManager {
     menu.querySelector("button")?.focus({ preventScroll: true });
   }
 
-  downloadAnnotated() {
+  downloadMarkdown() {
+    const { filename } = filenameParts(this.sourcePath);
+    downloadText(filename, this.sourceMarkdown);
+    this.originalSourceMarkdown = this.sourceMarkdown;
+    this.syncDownloadButton();
+  }
+
+  downloadMarkdownWithComments() {
     const { filename } = filenameParts(this.sourcePath);
     downloadText(filename, annotatedMarkdown(this.sourceMarkdown, this.comments));
-    this.markSaved();
+    this.originalSourceMarkdown = this.sourceMarkdown;
+    this.savedRevision = this.revision;
+    this.syncDownloadButton();
   }
 
   downloadComments() {
@@ -735,15 +997,9 @@ export class AnnotationManager {
   }
 
   downloadAndUpload() {
-    this.downloadAnnotated();
+    if (this.comments.length) this.downloadMarkdownWithComments();
+    else this.downloadMarkdown();
     this.onUpload?.();
-  }
-
-  markSaved() {
-    this.savedRevision = this.revision;
-    this.originalSourceMarkdown = this.sourceMarkdown;
-    this.syncDownloadButton();
-    this.syncUnsavedIndicator();
   }
 
   requestClose(callback) {
@@ -800,7 +1056,7 @@ export class AnnotationManager {
   syncUnsavedIndicator() {
     const count = Math.max(0, this.revision - this.savedRevision);
     const messages = [];
-    if (this.sourceChanged) messages.push("Edited Markdown");
+    if (this.sourceChanged) messages.push("Changed");
     if (count) messages.push(count === 1 ? "1 unsaved comment" : `${count} unsaved comments`);
     this.unsavedIndicator.hidden = messages.length === 0;
     this.unsavedIndicator.textContent = messages.join(" · ");
@@ -817,7 +1073,7 @@ export class AnnotationManager {
   }
 
   destroy() {
-    if (this.inlineEdit?.element?.isConnected) this.finishInlineEditing(this.inlineEdit.element);
+    if (this.inlineEdit) this.finishInlineEditing();
     this.inlineEdit = null;
     this.dismissMenus();
     this.stage.removeEventListener("contextmenu", this.handleContextMenu);

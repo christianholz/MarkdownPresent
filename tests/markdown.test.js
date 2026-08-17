@@ -5,7 +5,7 @@ import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
 import { fittedImageStackWidth } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
-import { annotatedMarkdown, commentsMarkdown, markdownInsertionOffset, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
+import { annotatedMarkdown, commentsMarkdown, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
 import { continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
 
 describe("Markdown slide parsing", () => {
@@ -140,6 +140,19 @@ describe("Markdown-backed editing", () => {
     const source = "## Findings\n\n- One\n- Two";
     expect(replaceMarkdownRange(source, 3, 11, "Results")).toBe("## Results\n\n- One\n- Two");
     expect(() => replaceMarkdownRange(source, -1, 4, "Nope")).toThrow(/no longer matches/i);
+  });
+
+  it("keeps comment anchors when edited text moves or is deleted", () => {
+    const comments = [
+      { id: "before", sourceOffset: 8 },
+      { id: "inside", sourceOffset: 13 },
+      { id: "after", sourceOffset: 20 },
+    ];
+    expect(remapCommentOffsets(comments, 10, 16, "abcdef", "aZf")).toEqual([
+      { id: "before", sourceOffset: 8 },
+      { id: "inside", sourceOffset: 11 },
+      { id: "after", sourceOffset: 17 },
+    ]);
   });
 });
 

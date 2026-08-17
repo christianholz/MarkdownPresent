@@ -135,8 +135,8 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .markdown-body > :last-child { margin-bottom: 0; }
 .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-weight: 600; letter-spacing: -.025em; line-height: 1.08; margin-right: 0; margin-bottom: .35em; margin-left: 0; }
 .markdown-body h3 strong, .markdown-body h4 strong, .markdown-body h5 strong, .markdown-body h6 strong { font-weight: 700; }
-.markdown-body h3 { margin-top: 1.2em; font-size: 1.23em; }
-.markdown-body h4 { margin-top: 1em; }
+.markdown-body h3 { margin-top: 1.6em; font-size: 1.23em; }
+.markdown-body h4 { margin-top: 1.2em; }
 .markdown-body h5, .markdown-body h6 { margin-top: .8em; }
 .markdown-body p { margin: .35em 0 .75em; }
 .markdown-body ul, .markdown-body ol { margin: .25em 0 .75em; padding-left: 1.18em; }
@@ -176,7 +176,8 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .comment-editor button[type="submit"] { background: var(--ink); color: white; }
 .is-inline-editing { position: relative; z-index: 4; border-radius: .14em; outline: max(2px, .12em) solid var(--accent); outline-offset: .12em; background: color-mix(in srgb, var(--accent-soft) 72%, white); cursor: text; caret-color: var(--accent); }
 .is-inline-editing:focus { outline: max(2px, .12em) solid var(--accent); }
-.is-inline-editing [data-generated-label] { opacity: .48; user-select: none; }
+[data-generated-suffix]::after { content: attr(data-generated-suffix); }
+.is-inline-editing[data-generated-suffix]::after { opacity: .48; user-select: none; }
 .is-inline-editing.has-inline-edit-error { outline-color: #a4362d; background: #fff0ed; }
 .slide-comment { position: relative; z-index: 3; display: inline-flex; width: clamp(18px, 1.875cqw, 27px); height: clamp(18px, 1.875cqw, 27px); margin: 0 .08em 0 .13em; vertical-align: .08em; cursor: pointer; outline: none; }
 .slide-comment.is-free-positioned { position: absolute; margin: 0; }
