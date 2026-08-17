@@ -9,6 +9,272 @@ function cloneNode(node) {
   return node ? node.cloneNode(true) : null;
 }
 
+function contentChunks(content) {
+  const chunks = [];
+  for (const node of content.children) {
+    if (node.matches("ul, ol") && node.children.length > 1) {
+      const start = node.matches("ol") ? Number.parseInt(node.getAttribute("start") || "1", 10) : null;
+      [...node.children].forEach((item, index) => {
+        chunks.push({ kind: "list-item", list: node, item, index, start, group: node });
+      });
+    } else {
+      chunks.push({ kind: "node", node });
+    }
+  }
+  return chunks;
+}
+
+function contentFromChunks(chunks) {
+  const content = document.createDocumentFragment();
+  let activeList = null;
+  let activeGroup = null;
+  for (const chunk of chunks) {
+    if (chunk.kind === "node") {
+      content.append(chunk.node.cloneNode(true));
+      activeList = null;
+      activeGroup = null;
+      continue;
+    }
+    if (chunk.group !== activeGroup) {
+      activeList = chunk.list.cloneNode(false);
+      if (activeList.matches("ol") && Number.isFinite(chunk.start)) {
+        activeList.setAttribute("start", String(chunk.start + chunk.index));
+      }
+      content.append(activeList);
+      activeGroup = chunk.group;
+    }
+    activeList.append(chunk.item.cloneNode(true));
+  }
+  return content;
+}
+
+function modelWithChunks(model, chunks) {
+  return {
+    ...model,
+    title: cloneNode(model.title),
+    content: contentFromChunks(chunks),
+    images: model.images.map((image) => ({ ...image })),
+  };
+}
+
+export function continuationTitleText(title, page, total) {
+  return `${title} (${page}/${total})`;
+}
+
+function addContinuationSuffix(model, page, total) {
+  if (!model.title || total < 2) return model;
+  const title = cloneNode(model.title);
+  const suffix = document.createElement("span");
+  suffix.dataset.generatedLabel = "";
+  suffix.contentEditable = "false";
+  suffix.textContent = continuationTitleText("", page, total);
+  title.append(suffix);
+  return { ...model, title };
+}
+
+function applyImageMeasurements(slide, model, measurements) {
+  const body = slide.querySelector(".slide-body");
+  const media = slide.querySelector(".slide-media");
+  if (!body || !media || model.images.length < 2) return;
+  const ratios = model.images.map(({ src }) => {
+    const measurement = measurements.get(src);
+    return measurement ? measurement.width / measurement.height : 1;
+  });
+  const rowGap = Number.parseFloat(getComputedStyle(media).rowGap) || 0;
+  const width = fittedImageStackWidth(media.clientWidth, media.clientHeight, ratios, rowGap);
+  if (width < media.clientWidth - 0.5) {
+    body.style.gridTemplateColumns = `minmax(0, 1fr) ${Math.max(1, width)}px`;
+  }
+}
+
+async function loadImageMeasurements(models, assetManager) {
+  const references = [...new Set(models.flatMap((model) => model.images.map((image) => image.src)).filter(Boolean))];
+  const entries = await Promise.all(references.map(async (reference) => {
+    try {
+      const url = await assetManager.getUrl(reference);
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      if (!image.naturalWidth || !image.naturalHeight) return null;
+      return [reference, { width: image.naturalWidth, height: image.naturalHeight }];
+    } catch {
+      return null;
+    }
+  }));
+  return new Map(entries.filter(Boolean));
+}
+
+function measurementSlide(model, measurements) {
+  const slide = documentFragmentFrom(model, 0);
+  slide.classList.add("is-active", "is-pagination-measure");
+  document.body.append(slide);
+  applyImageMeasurements(slide, model, measurements);
+  const copy = slide.querySelector(".slide-copy");
+  if (copy) copy.style.fontSize = `${CONFIG.presentation.paginationFontSize}px`;
+  return slide;
+}
+
+function fitsAtPaginationSize(model, measurements) {
+  const slide = measurementSlide(model, measurements);
+  const copy = slide.querySelector(".slide-copy");
+  const fits = !copy || (copy.scrollHeight <= copy.clientHeight + 1 && copy.scrollWidth <= copy.clientWidth + 1);
+  slide.remove();
+  return fits;
+}
+
+function contentHeightAtPaginationSize(model, measurements) {
+  const slide = measurementSlide(model, measurements);
+  const height = slide.querySelector(".slide-copy")?.scrollHeight || 1;
+  slide.remove();
+  return height;
+}
+
+function isSubheadingChunk(chunk) {
+  return chunk?.kind === "node" && chunk.node.matches("h3, h4, h5, h6");
+}
+
+function subheadingLevel(chunk) {
+  return isSubheadingChunk(chunk) ? Number(chunk.node.tagName.slice(1)) : null;
+}
+
+export function continuationContextText(text) {
+  return `${text} (cont'd)`;
+}
+
+function continuationHeadingChunk(chunk) {
+  const node = chunk.node.cloneNode(true);
+  const suffix = document.createElement("span");
+  suffix.dataset.generatedLabel = "";
+  suffix.contentEditable = "false";
+  suffix.textContent = continuationContextText("");
+  node.append(suffix);
+  node.dataset.continuationContext = "";
+  return { kind: "node", node, continuationContext: true };
+}
+
+function addContinuationHeadingContext(groups) {
+  let activeHeadings = [];
+  return groups.map((group, pageIndex) => {
+    const firstLevel = subheadingLevel(group[0]) ?? Number.POSITIVE_INFINITY;
+    const context = pageIndex === 0
+      ? []
+      : activeHeadings
+        .filter(({ level }) => level < firstLevel)
+        .map(({ chunk }) => continuationHeadingChunk(chunk));
+
+    for (const chunk of group) {
+      const level = subheadingLevel(chunk);
+      if (!level) continue;
+      activeHeadings = activeHeadings.filter((heading) => heading.level < level);
+      activeHeadings.push({ level, chunk });
+    }
+    return [...context, ...group];
+  });
+}
+
+export function continuationListBreakPenalty(leftCount, rightCount) {
+  let penalty = 2_000;
+  if (rightCount < 2) penalty += (2 - rightCount) * 100_000;
+  if (leftCount === 2) penalty += 100_000;
+  return penalty;
+}
+
+function continuationBreakPenalty(chunks, index) {
+  const before = chunks[index - 1];
+  const after = chunks[index];
+  if (!before || !after) return 0;
+
+  // A subheading belongs with the content that follows it.
+  if (isSubheadingChunk(before)) return 1_000_000;
+
+  // Prefer moving a complete list. If it must split, prevent list widows and
+  // orphans: at least two items continue, and two items are not left behind.
+  if (before.kind === "list-item" && after.kind === "list-item" && before.group === after.group) {
+    let leftCount = 0;
+    let rightCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && chunks[cursor].kind === "list-item" && chunks[cursor].group === before.group; cursor -= 1) {
+      leftCount += 1;
+    }
+    for (let cursor = index; cursor < chunks.length && chunks[cursor].kind === "list-item" && chunks[cursor].group === after.group; cursor += 1) {
+      rightCount += 1;
+    }
+    return continuationListBreakPenalty(leftCount, rightCount);
+  }
+  return 0;
+}
+
+function balancedContinuationGroups(model, chunks, count, measurements) {
+  const weights = chunks.map((chunk) => contentHeightAtPaginationSize(modelWithChunks(model, [chunk]), measurements));
+  const prefix = [0];
+  for (const weight of weights) prefix.push(prefix.at(-1) + weight);
+  let best = null;
+
+  const search = (start, remaining, ends = []) => {
+    if (remaining === 1) {
+      const boundaries = [...ends, chunks.length];
+      let groupStart = 0;
+      const groupWeights = boundaries.map((end) => {
+        const weight = prefix[end] - prefix[groupStart];
+        groupStart = end;
+        return weight;
+      });
+      const spread = Math.max(...groupWeights) - Math.min(...groupWeights);
+      const structurePenalty = ends.reduce((total, end) => total + continuationBreakPenalty(chunks, end), 0);
+      const score = structurePenalty + spread + Math.max(...groupWeights) * 0.001;
+      if (!best || score < best.score) best = { score, structurePenalty, boundaries };
+      return;
+    }
+    const finalEnd = chunks.length - remaining + 1;
+    for (let end = start + 1; end <= finalEnd; end += 1) search(end, remaining - 1, [...ends, end]);
+  };
+
+  search(0, count);
+  let groupStart = 0;
+  const groups = best.boundaries.map((end) => {
+    const group = chunks.slice(groupStart, end);
+    groupStart = end;
+    return group;
+  });
+  return { groups, structurePenalty: best.structurePenalty };
+}
+
+function paginateModel(model, measurements) {
+  if (model.title?.tagName !== "H2") return [model];
+  const chunks = contentChunks(model.content);
+  if (chunks.length < 2 || fitsAtPaginationSize(model, measurements)) return [model];
+
+  const groups = [];
+  let current = [];
+  for (const chunk of chunks) {
+    const candidate = [...current, chunk];
+    if (current.length && !fitsAtPaginationSize(modelWithChunks(model, candidate), measurements)) {
+      groups.push(current);
+      current = [chunk];
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length) groups.push(current);
+  if (groups.length < 2) return [model];
+  const estimatedPageCount = Math.min(3, groups.length);
+  let pagination;
+  for (let pageCount = estimatedPageCount; pageCount >= 2; pageCount -= 1) {
+    const candidate = balancedContinuationGroups(model, chunks, pageCount, measurements);
+    pagination = candidate;
+    if (candidate.structurePenalty < 100_000) break;
+  }
+  const contextualGroups = addContinuationHeadingContext(pagination.groups);
+  const pages = contextualGroups.map((group) => modelWithChunks(model, group));
+  return pages.map((page, index) => addContinuationSuffix({
+    ...page,
+    continuation: index > 0,
+  }, index + 1, pages.length));
+}
+
+function paginateDocument(documentModel, measurements) {
+  return documentModel.slides.flatMap((model) => paginateModel(model, measurements));
+}
+
 export class Presentation {
   constructor({ stage, counter, progress, onIndexChange }) {
     this.stage = stage;
@@ -65,6 +331,9 @@ export class Presentation {
     this.assetManager?.dispose();
     this.assetManager = assetManager;
     this.stage.replaceChildren();
+    await globalThis.document.fonts?.ready;
+    const measurements = await loadImageMeasurements(document.slides, assetManager);
+    document.slides = paginateDocument(document, measurements);
     this.slides = document.slides.map((model, index) => {
       const slide = documentFragmentFrom(model, index);
       this.stage.append(slide);

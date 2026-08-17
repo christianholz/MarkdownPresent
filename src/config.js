@@ -4,5 +4,6 @@ export const CONFIG = Object.freeze({
     preloadSlides: 1,
     minFontSize: 12,
     maxFontSize: 32,
+    paginationFontSize: 24,
   },
 });

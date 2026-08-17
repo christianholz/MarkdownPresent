@@ -1,4 +1,5 @@
 const ATOMIC_INLINE_SELECTOR = "a, strong, em, code, .katex";
+const EDITABLE_SOURCE_SELECTOR = "h1[data-source-start], h2[data-source-start], h3[data-source-start], h4[data-source-start], h5[data-source-start], h6[data-source-start], p[data-source-start], li[data-source-start]";
 const WORD_PATTERN = /[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}'’\-]*[\p{L}\p{N}\p{M}])?/gu;
 const TRAILING_PUNCTUATION = /[.,;:!?…\)\]\}”’]/;
 
@@ -148,10 +149,15 @@ export function markdownInsertionOffset(slideMarkdown, anchorText, occurrence = 
 
 function locateSlideStarts(sourceMarkdown, slides) {
   let cursor = 0;
+  let previousStart = -1;
   return slides.map((slide) => {
     const markdown = slide.model.markdown || "";
+    if (slide.model.continuation) return previousStart;
     const index = markdown ? sourceMarkdown.indexOf(markdown, cursor) : -1;
-    if (index >= 0) cursor = index + markdown.length;
+    if (index >= 0) {
+      cursor = index + markdown.length;
+      previousStart = index;
+    }
     return index;
   });
 }
@@ -173,6 +179,106 @@ export function annotatedMarkdown(sourceMarkdown, comments) {
     result = `${result.slice(0, insertion.offset)}${before}${insertion.value}${after}${result.slice(insertion.offset)}`;
   }
   return result;
+}
+
+export function replaceMarkdownFragment(sourceMarkdown, fragment, replacement, startHint = 0) {
+  const source = String(sourceMarkdown || "");
+  const original = String(fragment || "");
+  const preferredStart = Math.max(0, Number.isInteger(startHint) ? startHint : 0);
+  const start = source.startsWith(original, preferredStart)
+    ? preferredStart
+    : source.indexOf(original, preferredStart);
+  if (!original || start < 0) throw new Error("The Markdown section could not be located in the source document.");
+  return {
+    markdown: `${source.slice(0, start)}${replacement}${source.slice(start + original.length)}`,
+    start,
+  };
+}
+
+export function replaceMarkdownRange(sourceMarkdown, start, end, replacement) {
+  const source = String(sourceMarkdown || "");
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > source.length) {
+    throw new Error("The edited element no longer matches the Markdown source.");
+  }
+  return `${source.slice(0, start)}${replacement}${source.slice(end)}`;
+}
+
+function escapedMarkdownText(text) {
+  return String(text || "").replace(/[\\`*_[\]<>]/g, "\\$&");
+}
+
+function inlineMarkdown(node) {
+  if (node.nodeType === Node.TEXT_NODE) return escapedMarkdownText(node.textContent);
+  if (node.nodeType !== Node.ELEMENT_NODE || node.matches("[data-generated-label], .slide-comment, .slide-comment-card")) return "";
+  if (node.matches(".katex")) {
+    const tex = node.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
+    return tex ? `$${tex}$` : escapedMarkdownText(node.textContent);
+  }
+  const children = () => [...node.childNodes].map(inlineMarkdown).join("");
+  if (node.matches("strong, b")) return `**${children()}**`;
+  if (node.matches("em, i")) return `*${children()}*`;
+  if (node.matches("del, s")) return `~~${children()}~~`;
+  if (node.matches("code")) {
+    const text = node.textContent || "";
+    const fence = text.includes("`") ? "``" : "`";
+    return `${fence}${text}${fence}`;
+  }
+  if (node.matches("a")) {
+    const href = node.getAttribute("href") || "";
+    const title = node.getAttribute("title");
+    return `[${children()}](${href}${title ? ` \"${title.replace(/\"/g, "\\\"")}\"` : ""})`;
+  }
+  if (node.matches("br")) return "  \n";
+  return children();
+}
+
+function trailingWhitespace(markdown) {
+  return /\s*$/.exec(markdown)?.[0] || "";
+}
+
+function directListItemMarkdown(element) {
+  return [...element.childNodes]
+    .filter((node) => node.nodeType !== Node.ELEMENT_NODE || !node.matches("ul, ol, [data-generated-label]"))
+    .map((node) => node.nodeType === Node.ELEMENT_NODE && node.matches("p") ? inlineMarkdown(node) : inlineMarkdown(node))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function editedElementMarkdown(element, originalMarkdown) {
+  const trailing = trailingWhitespace(originalMarkdown);
+  if (element.matches("h1, h2, h3, h4, h5, h6")) {
+    const level = Number(element.tagName.slice(1));
+    return `${"#".repeat(level)} ${inlineMarkdown(element).trim()}${trailing}`;
+  }
+  if (element.matches("p")) return `${inlineMarkdown(element).trim()}${trailing}`;
+  if (element.matches("li")) {
+    const marker = /^(\s*(?:[-+*]|\d+[.)])\s+)/.exec(originalMarkdown)?.[1];
+    if (!marker) throw new Error("The list marker could not be located in the Markdown source.");
+    const taskMarker = /^(?:\s*(?:[-+*]|\d+[.)])\s+)(\[[ xX]\]\s+)/.exec(originalMarkdown)?.[1] || "";
+    const itemStart = Number(element.dataset.sourceStart);
+    const nestedStarts = [...element.querySelectorAll(":scope > ul[data-source-start], :scope > ol[data-source-start]")]
+      .map((list) => Number(list.dataset.sourceStart) - itemStart)
+      .filter((start) => Number.isInteger(start) && start >= 0);
+    if (nestedStarts.length) {
+      const nestedStart = Math.min(...nestedStarts);
+      const nestedLineStart = originalMarkdown.lastIndexOf("\n", nestedStart) + 1;
+      return `${marker}${taskMarker}${directListItemMarkdown(element)}\n${originalMarkdown.slice(nestedLineStart)}`;
+    }
+    return `${marker}${taskMarker}${directListItemMarkdown(element)}${trailing}`;
+  }
+  throw new Error("This rendered element cannot be edited as Markdown.");
+}
+
+function sourceElementAt(target, slide, slideMarkdown) {
+  const element = target.closest?.(EDITABLE_SOURCE_SELECTOR);
+  if (!element || !slide.contains(element)) return null;
+  const start = Number(element.dataset.sourceStart);
+  const end = Number(element.dataset.sourceEnd);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > slideMarkdown.length) return null;
+  const source = slideMarkdown.slice(start, end);
+  if (/!\[[^\]]*\]\([^)]*\)/.test(source)) return null;
+  return element;
 }
 
 export function commentsMarkdown(title, comments) {
@@ -199,15 +305,17 @@ function filenameParts(path) {
 }
 
 export class AnnotationManager {
-  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, sourcePath, title, onUpload }) {
+  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onMarkdownChange }) {
     this.stage = stage;
     this.deck = deck;
     this.downloadButton = downloadButton;
     this.presentation = presentation;
     this.sourceMarkdown = sourceMarkdown || "";
+    this.originalSourceMarkdown = originalSourceMarkdown ?? this.sourceMarkdown;
     this.sourcePath = sourcePath || "presentation.md";
     this.title = title || "Presentation";
     this.onUpload = onUpload;
+    this.onMarkdownChange = onMarkdownChange;
     this.comments = [];
     this.revision = 0;
     this.savedRevision = 0;
@@ -215,6 +323,7 @@ export class AnnotationManager {
     this.pendingAnchor = null;
     this.pendingClose = null;
     this.allowUnload = false;
+    this.inlineEdit = null;
     this.unsavedIndicator = document.createElement("p");
     this.unsavedIndicator.className = "unsaved-comment-count";
     this.unsavedIndicator.hidden = true;
@@ -243,21 +352,24 @@ export class AnnotationManager {
     this.syncDownloadButton();
   }
 
-  get dirty() { return this.comments.length > 0 && this.revision !== this.savedRevision; }
+  get sourceChanged() { return this.sourceMarkdown !== this.originalSourceMarkdown; }
+  get dirty() { return this.sourceChanged || (this.comments.length > 0 && this.revision !== this.savedRevision); }
 
   onContextMenu(event) {
     const slide = event.target.closest?.(".slide.is-active");
-    if (!slide || event.target.closest(".image-popover, .comment-editor, .slide-comment, .slide-comment-card")) return;
+    if (!slide || event.target.closest(".image-popover, .comment-editor, .is-inline-editing, .slide-comment, .slide-comment-card")) return;
     event.preventDefault();
     event.stopPropagation();
     this.dismissMenus();
     const slideIndex = this.presentation.slides.findIndex(({ element }) => element === slide);
+    const slideMarkdown = this.presentation.slides[slideIndex]?.model.markdown || "";
     this.pendingAnchor = {
       slide,
       slideIndex,
       clientX: event.clientX,
       clientY: event.clientY,
       anchor: nearestTextAnchor(slide, event.clientX, event.clientY),
+      editElement: sourceElementAt(event.target, slide, slideMarkdown),
     };
     this.openContextMenu();
   }
@@ -268,22 +380,154 @@ export class AnnotationManager {
     const menu = document.createElement("div");
     menu.className = "comment-context-menu";
     menu.setAttribute("role", "menu");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.setAttribute("role", "menuitem");
-    button.textContent = "Add comment";
-    button.addEventListener("click", (event) => {
+    const actions = [];
+    const slideStart = this.slideStarts[this.pendingAnchor.slideIndex];
+    const slideMarkdown = this.presentation.slides[this.pendingAnchor.slideIndex]?.model.markdown || "";
+    if (this.onMarkdownChange && slideStart >= 0 && slideMarkdown && this.pendingAnchor.editElement) {
+      actions.push(["Edit", (event) => {
+        event.stopPropagation();
+        menu.remove();
+        this.startInlineEditing();
+      }]);
+    }
+    actions.push(["Add comment", (event) => {
       event.stopPropagation();
       menu.remove();
       this.openEditor(clientX - rect.left, clientY - rect.top);
+    }]);
+    for (const [label, action] of actions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.textContent = label;
+      button.addEventListener("click", action);
+      button.addEventListener("pointerenter", () => button.focus({ preventScroll: true }));
+      menu.append(button);
+    }
+    menu.addEventListener("keydown", (event) => {
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const buttons = [...menu.querySelectorAll('[role="menuitem"]')];
+      const current = buttons.indexOf(document.activeElement);
+      const next = event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? buttons.length - 1
+          : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]?.focus({ preventScroll: true });
     });
-    menu.append(button);
     slide.append(menu);
     const left = Math.max(8, Math.min(clientX - rect.left, slide.clientWidth - menu.offsetWidth - 8));
     const top = Math.max(8, Math.min(clientY - rect.top, slide.clientHeight - menu.offsetHeight - 8));
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
-    button.focus({ preventScroll: true });
+    menu.querySelector("button")?.focus({ preventScroll: true });
+  }
+
+  startInlineEditing() {
+    const { slideIndex, editElement: element, clientX, clientY } = this.pendingAnchor;
+    const slideStart = this.slideStarts[slideIndex];
+    const slideMarkdown = this.presentation.slides[slideIndex]?.model.markdown || "";
+    const localStart = Number(element?.dataset.sourceStart);
+    const localEnd = Number(element?.dataset.sourceEnd);
+    if (!element || slideStart < 0 || !slideMarkdown || !Number.isInteger(localStart) || !Number.isInteger(localEnd)) return;
+
+    this.inlineEdit = {
+      element,
+      slideIndex,
+      slideStart,
+      localStart,
+      localEnd,
+      originalHtml: element.innerHTML,
+      originalMarkdown: slideMarkdown.slice(localStart, localEnd),
+      committing: false,
+    };
+    element.querySelectorAll(":scope > ul, :scope > ol").forEach((list) => {
+      list.contentEditable = "false";
+      list.dataset.inlineEditLocked = "";
+    });
+    element.contentEditable = "true";
+    element.spellcheck = true;
+    element.classList.add("is-inline-editing");
+    element.setAttribute("role", "textbox");
+    element.setAttribute("aria-label", "Edit slide content");
+    element.addEventListener("blur", () => this.commitInlineEditing(), { once: true });
+    element.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.cancelInlineEditing();
+      } else if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.commitInlineEditing();
+      }
+    });
+    element.focus({ preventScroll: true });
+    this.placeInlineCaret(element, clientX, clientY);
+  }
+
+  placeInlineCaret(element, clientX, clientY) {
+    const range = document.caretRangeFromPoint?.(clientX, clientY);
+    if (!range || !element.contains(range.startContainer) || range.startContainer.parentElement?.closest("[data-generated-label]")) return;
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  finishInlineEditing(element) {
+    element.querySelectorAll("[data-inline-edit-locked]").forEach((list) => {
+      list.removeAttribute("contenteditable");
+      delete list.dataset.inlineEditLocked;
+    });
+    element.removeAttribute("contenteditable");
+    element.removeAttribute("spellcheck");
+    element.removeAttribute("role");
+    element.removeAttribute("aria-label");
+    element.removeAttribute("aria-invalid");
+    element.removeAttribute("title");
+    element.classList.remove("is-inline-editing", "has-inline-edit-error");
+  }
+
+  cancelInlineEditing() {
+    const edit = this.inlineEdit;
+    if (!edit || edit.committing) return;
+    edit.element.innerHTML = edit.originalHtml;
+    this.finishInlineEditing(edit.element);
+    this.inlineEdit = null;
+    this.pendingAnchor = null;
+  }
+
+  async commitInlineEditing() {
+    const edit = this.inlineEdit;
+    if (!edit || edit.committing) return;
+    edit.element.querySelectorAll("[data-inline-edit-locked]").forEach((list) => {
+      list.removeAttribute("contenteditable");
+      delete list.dataset.inlineEditLocked;
+    });
+    if (edit.element.innerHTML === edit.originalHtml) {
+      this.finishInlineEditing(edit.element);
+      this.inlineEdit = null;
+      this.pendingAnchor = null;
+      return;
+    }
+    edit.committing = true;
+    try {
+      const replacement = editedElementMarkdown(edit.element, edit.originalMarkdown);
+      const absoluteStart = edit.slideStart + edit.localStart;
+      const absoluteEnd = edit.slideStart + edit.localEnd;
+      const markdown = replaceMarkdownRange(this.sourceMarkdown, absoluteStart, absoluteEnd, replacement);
+      this.finishInlineEditing(edit.element);
+      await this.onMarkdownChange(markdown, { slideIndex: edit.slideIndex, sourceStart: absoluteStart });
+    } catch (error) {
+      edit.committing = false;
+      edit.element.contentEditable = "true";
+      edit.element.classList.add("has-inline-edit-error");
+      edit.element.setAttribute("aria-invalid", "true");
+      edit.element.title = error?.message || String(error);
+      edit.element.addEventListener("blur", () => this.commitInlineEditing(), { once: true });
+      edit.element.focus({ preventScroll: true });
+    }
   }
 
   openEditor(left, top) {
@@ -394,7 +638,7 @@ export class AnnotationManager {
   }
 
   onStageClick(event) {
-    if (event.target.closest?.(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu")) return;
+    if (event.target.closest?.(".slide-comment, .slide-comment-card, .comment-editor, .is-inline-editing, .comment-context-menu")) return;
     this.collapseComments();
     this.removeContextMenu();
   }
@@ -408,7 +652,11 @@ export class AnnotationManager {
 
   onKeydown(event) {
     if (event.key !== "Escape") return;
-    if (this.deck.querySelector(".comment-editor")) {
+    if (this.inlineEdit) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.cancelInlineEditing();
+    } else if (this.deck.querySelector(".comment-editor")) {
       event.preventDefault();
       event.stopImmediatePropagation();
       this.closeEditor();
@@ -438,16 +686,14 @@ export class AnnotationManager {
     const menu = document.createElement("section");
     menu.className = "comment-save-menu";
     menu.setAttribute("role", "dialog");
-    menu.setAttribute("aria-label", closing ? "Save comments before closing" : "Download comments");
+    menu.setAttribute("aria-label", closing ? "Save changes before closing" : "Download changes");
     const heading = document.createElement("strong");
-    heading.textContent = closing ? "Save comments before closing?" : "Download comments";
+    heading.textContent = closing ? "Save changes before closing?" : "Download changes";
     menu.append(heading);
 
-    const actions = [
-      ["Download annotated Markdown document", () => this.downloadAnnotated()],
-      ["Download just comments", () => this.downloadComments()],
-    ];
-    if (this.onUpload) actions.push(["Download annotated Markdown and open GitHub upload", () => this.downloadAndUpload()]);
+    const actions = [["Download Markdown document", () => this.downloadAnnotated()]];
+    if (this.comments.length && !this.sourceChanged) actions.push(["Download just comments", () => this.downloadComments()]);
+    if (this.onUpload) actions.push(["Download Markdown and open GitHub upload", () => this.downloadAndUpload()]);
     for (const [label, action] of actions) {
       const button = document.createElement("button");
       button.type = "button";
@@ -484,7 +730,8 @@ export class AnnotationManager {
   downloadComments() {
     const { stem } = filenameParts(this.sourcePath);
     downloadText(`${stem}-comments.md`, commentsMarkdown(this.title, this.comments));
-    this.markSaved();
+    this.savedRevision = this.revision;
+    this.syncDownloadButton();
   }
 
   downloadAndUpload() {
@@ -494,6 +741,8 @@ export class AnnotationManager {
 
   markSaved() {
     this.savedRevision = this.revision;
+    this.originalSourceMarkdown = this.sourceMarkdown;
+    this.syncDownloadButton();
     this.syncUnsavedIndicator();
   }
 
@@ -541,15 +790,21 @@ export class AnnotationManager {
   closeSaveMenu() { this.deck.querySelector(".comment-save-menu")?.remove(); }
   dismissMenus() { this.removeContextMenu(); this.closeEditor(); this.closeSaveMenu(); }
   syncDownloadButton() {
-    this.downloadButton.hidden = this.comments.length === 0;
+    this.downloadButton.hidden = !this.dirty && this.comments.length === 0;
+    const label = this.sourceChanged ? "Download changes" : "Download comments";
+    this.downloadButton.setAttribute("aria-label", label);
+    this.downloadButton.title = label;
     this.syncUnsavedIndicator();
   }
 
   syncUnsavedIndicator() {
     const count = Math.max(0, this.revision - this.savedRevision);
-    this.unsavedIndicator.hidden = count === 0;
-    this.unsavedIndicator.textContent = count === 1 ? "1 unsaved comment" : `${count} unsaved comments`;
-    if (count) this.positionUnsavedIndicator();
+    const messages = [];
+    if (this.sourceChanged) messages.push("Edited Markdown");
+    if (count) messages.push(count === 1 ? "1 unsaved comment" : `${count} unsaved comments`);
+    this.unsavedIndicator.hidden = messages.length === 0;
+    this.unsavedIndicator.textContent = messages.join(" · ");
+    if (messages.length) this.positionUnsavedIndicator();
   }
 
   positionUnsavedIndicator() {
@@ -562,6 +817,8 @@ export class AnnotationManager {
   }
 
   destroy() {
+    if (this.inlineEdit?.element?.isConnected) this.finishInlineEditing(this.inlineEdit.element);
+    this.inlineEdit = null;
     this.dismissMenus();
     this.stage.removeEventListener("contextmenu", this.handleContextMenu);
     this.stage.removeEventListener("click", this.handleStageClick, true);

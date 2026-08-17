@@ -5,7 +5,8 @@ import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
 import { fittedImageStackWidth } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
-import { annotatedMarkdown, commentsMarkdown, markdownInsertionOffset } from "../src/annotations.js";
+import { annotatedMarkdown, commentsMarkdown, markdownInsertionOffset, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
+import { continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
 
 describe("Markdown slide parsing", () => {
   it("covers all seven layouts in the example deck", () => {
@@ -109,6 +110,36 @@ describe("slide outline labels", () => {
   it("uses headings and supplies a readable fallback for untitled slides", () => {
     expect(slideOutlineLabel({ title: { textContent: "  Results  " } }, 2)).toBe("Results");
     expect(slideOutlineLabel({ title: null }, 3)).toBe("Slide 4");
+  });
+});
+
+describe("automatic continuation slides", () => {
+  it("adds the page number and total to repeated section titles", () => {
+    expect(continuationTitleText("Findings", 2, 3)).toBe("Findings (2/3)");
+    expect(continuationContextText("Evidence")).toBe("Evidence (cont'd)");
+  });
+
+  it("penalizes list widows and two-item fragments", () => {
+    const cleanBreak = continuationListBreakPenalty(3, 2);
+    expect(continuationListBreakPenalty(3, 1)).toBeGreaterThan(cleanBreak);
+    expect(continuationListBreakPenalty(2, 2)).toBeGreaterThan(cleanBreak);
+    expect(continuationListBreakPenalty(1, 2)).toBe(cleanBreak);
+  });
+});
+
+describe("Markdown-backed editing", () => {
+  it("replaces the canonical section rather than rendered HTML", () => {
+    const source = "# Deck\n\n## Findings\n\n- One\n- Two\n\n## Next\n\nDone";
+    const fragment = "## Findings\n\n- One\n- Two";
+    expect(replaceMarkdownFragment(source, fragment, "## Revised findings\n\n- One").markdown).toBe(
+      "# Deck\n\n## Revised findings\n\n- One\n\n## Next\n\nDone",
+    );
+  });
+
+  it("patches a single rendered element by its source range", () => {
+    const source = "## Findings\n\n- One\n- Two";
+    expect(replaceMarkdownRange(source, 3, 11, "Results")).toBe("## Results\n\n- One\n- Two");
+    expect(() => replaceMarkdownRange(source, -1, 4, "Nope")).toThrow(/no longer matches/i);
   });
 });
 

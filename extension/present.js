@@ -79,13 +79,8 @@ async function boot() {
     const payload = stored[storageKey];
     if (!payload) throw new Error("The GitHub source expired. Return to the Markdown file and click Present again.");
 
-    const repository = new GithubPageRepository(payload.source, payload.markdown || "", payload.sourceTabId);
-    const documentModel = payload.markdown
-      ? processMarkdown(payload.markdown, payload.source)
-      : processRenderedHtml(payload.renderedHtml, payload.source);
-    if (!documentModel.slides.length) throw new Error("The GitHub file does not contain any slide content.");
-
-    const manager = new AssetManager(repository, payload.source, CONFIG.presentation.assetConcurrency);
+    const originalMarkdown = payload.markdown || "";
+    const repository = new GithubPageRepository(payload.source, originalMarkdown, payload.sourceTabId);
     presentation = new Presentation({
       stage: $("#stage"),
       counter: $("#slide-number"),
@@ -95,21 +90,6 @@ async function boot() {
         outline?.setActive(index);
       },
     });
-    await presentation.create(documentModel, manager);
-    const title = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
-      || documentModel.slides.find((slide) => slide.title)?.title?.textContent?.trim()
-      || payload.source.path.split("/").pop()
-      || "Presentation";
-    annotations = new AnnotationManager({
-      stage: $("#stage"),
-      deck: $(".deck-screen"),
-      downloadButton: $("#download-comments"),
-      presentation,
-      sourceMarkdown: payload.markdown || "",
-      sourcePath: payload.source.path,
-      title,
-      onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
-    });
     outline = new SlideOutline({
       panel: $("#slide-outline"),
       list: $("#outline-list"),
@@ -118,11 +98,42 @@ async function boot() {
       dismissSurface: $("#stage"),
       onSelect: (index) => presentation?.show(index),
     });
-    outline.setSlides(documentModel.slides);
-    $("#deck-name").textContent = payload.source.path.split("/").pop() || "Presentation";
-    setScreen("deck");
-    await presentation.show(slideFromHash());
-    await Promise.allSettled(presentation.slides.map((_, index) => presentation.loadAssets(index)));
+
+    const renderDeck = async (markdown, requestedIndex) => {
+      setScreen("loading");
+      const documentModel = markdown
+        ? processMarkdown(markdown, payload.source)
+        : processRenderedHtml(payload.renderedHtml, payload.source);
+      if (!documentModel.slides.length) throw new Error("The GitHub file does not contain any slide content.");
+      const manager = new AssetManager(repository, payload.source, CONFIG.presentation.assetConcurrency);
+      await presentation.create(documentModel, manager);
+      annotations?.destroy();
+      const title = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
+        || documentModel.slides.find((slide) => slide.title)?.title?.textContent?.trim()
+        || payload.source.path.split("/").pop()
+        || "Presentation";
+      annotations = new AnnotationManager({
+        stage: $("#stage"),
+        deck: $(".deck-screen"),
+        downloadButton: $("#download-comments"),
+        presentation,
+        sourceMarkdown: markdown,
+        originalSourceMarkdown: originalMarkdown,
+        sourcePath: payload.source.path,
+        title,
+        onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
+        onMarkdownChange: originalMarkdown
+          ? (nextMarkdown) => renderDeck(nextMarkdown, presentation.index)
+          : undefined,
+      });
+      outline.setSlides(documentModel.slides);
+      $("#deck-name").textContent = payload.source.path.split("/").pop() || "Presentation";
+      setScreen("deck");
+      await presentation.show(requestedIndex);
+      await Promise.allSettled(presentation.slides.map((_, index) => presentation.loadAssets(index)));
+    };
+
+    await renderDeck(originalMarkdown, slideFromHash());
     await chrome.storage.local.remove(storageKey);
   } catch (error) { showError(error); }
 }
@@ -137,7 +148,7 @@ $("#close-error").addEventListener("click", () => window.close());
 $("#fullscreen").addEventListener("click", toggleFullscreen);
 
 document.addEventListener("keydown", (event) => {
-  if ($(".deck-screen").hidden || event.target.matches("input, textarea, button")) return;
+  if ($(".deck-screen").hidden || event.target.matches("input, textarea, button, [contenteditable='true']")) return;
   const actions = {
     ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),
     ArrowLeft: () => presentation?.previous(), ArrowUp: () => presentation?.previous(), PageUp: () => presentation?.previous(),

@@ -7,26 +7,60 @@ import { SlideOutline } from "./slide-outline.js";
 import { CONFIG } from "./config.js";
 import { AnnotationManager } from "./annotations.js";
 
-const SAMPLE = `# A small deck
+const SAMPLE = `# Research Planning Session
 
-Presentation-ready Markdown, directly in your browser.
+Questions, evidence, and the smallest useful next step
 
-## Familiar Markdown
+## A focused pilot will reduce the biggest uncertainty
 
-- Regular bullets
-  - Nested bullets stay nested
-- **Emphasis**, [links](https://example.com), and tables
+The first round should answer one question well: **does the proposed workflow help people reach a confident decision faster?**
 
-| Feature | Status |
-|---|---|
-| Math | $E = mc^2$ |
-| Images | Included |
+- Recruit participants who already perform the task
+- Observe the complete workflow, not isolated screens
+- Record where confidence rises or falls
+- Stop when the dominant friction points repeat
 
-## Math, included
+![Pilot focus](./examples/layout-test/images/card-03.svg)
 
-Inline equations and full display math are rendered locally.
+## Two evidence streams should be reviewed together
 
-$$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$`;
+Behavior shows what happened; reflection helps explain why. Neither view is sufficient alone.
+
+- Session observations reveal hesitation, recovery, and workarounds
+- Short interviews reveal expectations and decision criteria
+- Agreement between both streams creates a stronger signal
+
+![Observed behavior](./examples/layout-test/images/card-01.svg)
+![Participant reflection](./examples/layout-test/images/card-06.svg)
+
+## A shared rubric keeps the review consistent
+
+| Question | Evidence to capture |
+| --- | --- |
+| Can people begin unaided? | First action and time to orientation |
+| Can they recover from mistakes? | Recovery path and assistance required |
+| Do they trust the result? | Confidence rating and stated concerns |
+
+### Strong signals should change the next iteration
+
+Prioritize findings that are repeated, consequential, and directly connected to the central research question.
+
+## Math and links are included
+
+Inline equations such as $E = mc^2$, [supporting links](https://example.com), and full display math are rendered locally.
+
+$$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$
+
+## The next iteration has one job
+
+Keep the successful parts stable and change only the interaction under investigation.
+
+1. Select the highest-impact unresolved finding
+2. Define the expected behavioral change
+3. Build only what is needed to test that expectation
+4. Run the same rubric again
+
+![Next iteration](./examples/layout-test/images/card-08.svg)`;
 
 document.querySelector("#app").innerHTML = `
   <section class="home-screen" data-screen="home">
@@ -200,10 +234,12 @@ function setAssetStatus(element, message, state = "") {
   element.classList.toggle("is-success", state === "success");
 }
 
-async function loadDeck(repository, source, label) {
+async function loadDeck(repository, source, label, state = {}) {
   setScreen("loading");
   try {
-    const markdown = await repository.readText();
+    const markdown = state.markdown ?? await repository.readText();
+    const originalMarkdown = state.originalMarkdown ?? markdown;
+    const requestedIndex = state.index ?? slideFromHash();
     const documentModel = processMarkdown(markdown, source);
     if (!documentModel.slides.length) throw new Error("The Markdown file does not contain any slide content.");
     const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
@@ -228,8 +264,14 @@ async function loadDeck(repository, source, label) {
       downloadButton: $("#download-comments"),
       presentation,
       sourceMarkdown: markdown,
+      originalSourceMarkdown: originalMarkdown,
       sourcePath: source.path,
       title,
+      onMarkdownChange: (nextMarkdown) => loadDeck(repository, source, label, {
+        markdown: nextMarkdown,
+        originalMarkdown,
+        index: presentation.index,
+      }),
     });
     outline ||= new SlideOutline({
       panel: $("#slide-outline"),
@@ -242,7 +284,7 @@ async function loadDeck(repository, source, label) {
     outline.setSlides(documentModel.slides);
     $("#deck-name").textContent = label || "Presentation";
     setScreen("deck");
-    await presentation.show(slideFromHash());
+    await presentation.show(requestedIndex);
   } catch (error) { showError(error); }
 }
 
@@ -468,7 +510,7 @@ async function toggleFullscreen() {
 }
 
 document.addEventListener("keydown", (event) => {
-  if ($(".deck-screen").hidden || event.target.matches("input, textarea, button")) return;
+  if ($(".deck-screen").hidden || event.target.matches("input, textarea, button, [contenteditable='true']")) return;
   const actions = {
     ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),
     ArrowLeft: () => presentation?.previous(), ArrowUp: () => presentation?.previous(), PageUp: () => presentation?.previous(),

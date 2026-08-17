@@ -1,52 +1,10 @@
 # MarkdownPresent
 
-A static, browser-only Markdown presentation renderer. The standalone page offers folder upload, Chrome-extension installation instructions, and direct Markdown paste; the extension presents Markdown files directly from GitHub.
+A static, browser-only renderer that turns ordinary Markdown into clean 16:9 presentations. Use [MarkdownPresent](https://mdpresent.siplab.org) directly, or install the Chrome extension to present Markdown files from GitHub.
 
-## Features
+## Markdown format
 
-- Turn ordinary Markdown into clean 16:9 slides with automatic layouts and text fitting
-- Present formatted text, nested lists, tables, code, math, and images
-- Adapt image layouts to the available space and open images in a focused viewer
-- Navigate with the keyboard, jump through a slide outline, and present fullscreen
-- Add comments directly to slides and export annotated Markdown or a comments-only document
-- Present Markdown files directly from GitHub with the Chrome extension
-
-## Run locally
-
-Install once, then start the Vite development server:
-
-```sh
-npx pnpm@11.9.0 install
-npx pnpm@11.9.0 dev
-```
-
-Open the URL Vite prints. A server is needed during development because the source uses JavaScript modules. After `pnpm build`, any static server can serve `dist`, including `php -S localhost:8000 -t dist`.
-
-## Standalone page
-
-The source card has three tabs:
-
-1. **Upload folder** accepts a directory, a Markdown file, or a selection containing Markdown and supporting assets. If the folder has several `.md`/`.markdown` files, MarkdownPresent displays a filterable presentation picker. Image paths are resolved relative to the selected Markdown file.
-2. **Chrome extension** gives the short unpacked-extension installation steps.
-3. **Paste directly** accepts Markdown in the page.
-
-Before opening an uploaded or pasted deck, the page checks every referenced image and flags embedded media types the renderer cannot display. Missing local files, failed remote images, and unsupported media references are listed so the user can upload the containing directory or revise the deck. Pasted Markdown is checked automatically after edits and again when **Check and present** is clicked.
-
-## Chrome extension
-
-Download the [latest Chrome extension](https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip) and extract the ZIP. Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted folder.
-
-To build it from source instead, run `pnpm build` and load `dist/extension`.
-
-On Markdown file pages under `https://github.com/eth-siplab-team/`, the extension adds a **Present** button beside GitHub's **Raw** button. It supports both `/blob/` and `/tree/` file URLs. Clicking it reads the adjacent Raw URL with the GitHub session already active in that tab and opens the deck in an extension tab. If Raw cannot be read, it falls back to GitHub's rendered Markdown article. The extension is scoped to that organization in `extension/public/manifest.json` and `extension/public/content.js`.
-
-Right-click a slide to add a dated comment. The download control can save the original Markdown with comments inserted as HTML comments, save a comments-only Markdown document, or—in the Chrome extension—download the annotated file and open the corresponding GitHub upload page.
-
-The extension build is self-contained in `dist/extension`; it does not depend on the standalone viewer.
-
-## Markdown
-
-An H1 creates a title or section slide. An H2 starts a content slide, while H3 and deeper headings stay within that slide. Use `---` or `<!-- slide -->` when you want to force a slide break.
+An H1 creates a title or section slide. An H2 starts a content slide; H3 and deeper headings remain on that slide. Use `---` or `<!-- slide -->` to force a slide break.
 
 ```md
 # Presentation title
@@ -65,26 +23,38 @@ Text stays on the left.
 ![Result](images/result.png)
 ```
 
-Math uses `$inline$` or `$$display$$`. Diagrams can be included as ordinary image assets.
+MarkdownPresent supports formatted text, nested lists, tables, code, images, and math written as `$inline$` or `$$display$$`. Image paths are resolved relative to the Markdown file.
 
-## Templates
+If an H2 section does not fit, it is automatically split into up to three slides with titles such as `(1/3)`, `(2/3)`, and `(3/3)`. Pagination accounts for the included figures and their aspect ratios.
 
-The layouts in `src/templates/` are ordinary HTML files. Vite imports them as source and folds them into both builds; no template AJAX requests are needed.
+## Using MarkdownPresent
 
-## Publishing
+Upload a Markdown file together with its assets, upload a complete folder, or paste Markdown directly. Referenced images are checked before the presentation opens; local image decks should normally be uploaded as a folder.
 
-Every push to `main` tests and builds the standalone page, runs it through Jekyll, and deploys it to [mdpresent.siplab.org](https://mdpresent.siplab.org). The Chrome extension is not part of the Pages deployment.
+Navigate with the arrow keys or Space, press `F` for fullscreen, and use the slide outline to jump through the deck. Images can be opened in a focused viewer.
 
-Pushing a version tag runs the separate release workflow, tests and builds both the standalone page and Chrome extension, and creates a GitHub Release with two independent downloads:
+Right-click a heading, paragraph, or bullet to edit it in place, or add a dated comment. Edits update the Markdown, rebuild and repaginate the deck, and can be downloaded afterward.
 
-- `mdpresent-site.zip`
-- `mdpresent-chrome-extension.zip`
+## Chrome extension
 
-For example:
+Download the [latest Chrome extension](https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip), extract it, then open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**.
+
+The extension adds a **Present** button to supported GitHub Markdown pages. It is currently scoped to repositories under `eth-siplab-team`.
+
+## Development
+
+Install dependencies and start the Vite development server:
 
 ```sh
-git tag v0.1
-git push origin v0.1
+npx pnpm@11.9.0 install
+npx pnpm@11.9.0 dev
 ```
 
-Run `pnpm package` after `pnpm build` to generate the same ZIP files locally in `release/`. Run `pnpm build:jekyll` to prepare the standalone site locally in `.jekyll-source/` using the same pre-Jekyll step as the Pages workflow.
+Run the checks and build both the standalone site and extension with:
+
+```sh
+pnpm test
+pnpm build
+```
+
+The standalone output is written to `dist`; the self-contained extension is written to `dist/extension`. Slide layouts are ordinary HTML templates in `src/templates/`.

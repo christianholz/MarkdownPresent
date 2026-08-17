@@ -123,6 +123,73 @@ function safeHtml(markdown) {
   });
 }
 
+function tokenElementSelector(token) {
+  if (token.type === "heading") return `h${token.depth}`;
+  if (token.type === "paragraph") return "p";
+  if (token.type === "list") return token.ordered ? "ol" : "ul";
+  if (token.type === "blockquote") return "blockquote";
+  if (token.type === "code") return "pre";
+  if (token.type === "table") return "table";
+  if (token.type === "hr") return "hr";
+  if (token.type === "blockMath") return ".math-display";
+  return null;
+}
+
+function setSourceRange(element, start, end, kind) {
+  if (!element || start < 0 || end < start) return;
+  element.dataset.sourceStart = String(start);
+  element.dataset.sourceEnd = String(end);
+  element.dataset.sourceKind = kind;
+}
+
+function annotateListSourceRanges(token, list, start) {
+  const items = [...list.children].filter((element) => element.matches("li"));
+  let itemCursor = 0;
+  token.items?.forEach((itemToken, index) => {
+    const item = items[index];
+    if (!item) return;
+    const relativeStart = token.raw.indexOf(itemToken.raw, itemCursor);
+    if (relativeStart < 0) return;
+    const itemStart = start + relativeStart;
+    setSourceRange(item, itemStart, itemStart + itemToken.raw.length, "list-item");
+    itemCursor = relativeStart + itemToken.raw.length;
+
+    const nestedTokens = (itemToken.tokens || []).filter((child) => child.type === "list");
+    const nestedLists = [...item.children].filter((element) => element.matches("ul, ol"));
+    let nestedCursor = 0;
+    nestedTokens.forEach((nestedToken, nestedIndex) => {
+      const nestedList = nestedLists[nestedIndex];
+      if (!nestedList) return;
+      const nestedStart = itemToken.raw.indexOf(nestedToken.raw, nestedCursor);
+      if (nestedStart < 0) return;
+      setSourceRange(nestedList, itemStart + nestedStart, itemStart + nestedStart + nestedToken.raw.length, "list");
+      annotateListSourceRanges(nestedToken, nestedList, itemStart + nestedStart);
+      nestedCursor = nestedStart + nestedToken.raw.length;
+    });
+  });
+}
+
+function annotateSourceRanges(fragment, markdown) {
+  const elements = [...fragment.children];
+  let elementCursor = 0;
+  let sourceCursor = 0;
+  for (const token of marked.lexer(markdown)) {
+    if (!token.raw || token.type === "space") continue;
+    const selector = tokenElementSelector(token);
+    const start = markdown.indexOf(token.raw, sourceCursor);
+    if (start < 0) continue;
+    sourceCursor = start + token.raw.length;
+    if (!selector) continue;
+    const relativeIndex = elements.slice(elementCursor).findIndex((element) => element.matches(selector));
+    if (relativeIndex < 0) continue;
+    const elementIndex = elementCursor + relativeIndex;
+    const element = elements[elementIndex];
+    elementCursor = elementIndex + 1;
+    setSourceRange(element, start, start + token.raw.length, token.type);
+    if (token.type === "list") annotateListSourceRanges(token, element, start);
+  }
+}
+
 function extractTitle(fragment) {
   const heading = fragment.querySelector("h1, h2");
   if (!heading) return null;
@@ -140,6 +207,7 @@ function hasMeaningfulSlideContent(fragment) {
 function slideModelFromHtml(html, markdown = "") {
   const template = document.createElement("template");
   template.innerHTML = html;
+  if (markdown) annotateSourceRanges(template.content, markdown);
   const title = extractTitle(template.content);
   const images = [];
   const imageParents = new Set();
