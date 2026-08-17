@@ -5,7 +5,7 @@ import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
 import { fittedImageStackWidth } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
-import { annotatedMarkdown, commentsMarkdown, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
+import { annotatedMarkdown, changeStatusText, commentsMarkdown, hasEditableListContent, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
 import { continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
 
 describe("Markdown slide parsing", () => {
@@ -154,9 +154,33 @@ describe("Markdown-backed editing", () => {
       { id: "after", sourceOffset: 17 },
     ]);
   });
+
+  it("treats browser placeholders as empty list items", () => {
+    expect(hasEditableListContent("")).toBe(false);
+    expect(hasEditableListContent("<br>")).toBe(false);
+    expect(hasEditableListContent("<br /> <br>")).toBe(false);
+    expect(hasEditableListContent("**Still here**")).toBe(true);
+  });
+
+  it("retains comments when their complete list item is removed", () => {
+    const comments = [
+      { id: "inside", sourceOffset: 4, anchorText: "One", anchorOccurrence: 0 },
+      { id: "after", sourceOffset: 10, anchorText: "Two", anchorOccurrence: 0 },
+    ];
+    expect(remapCommentOffsets(comments, 0, 6, "- One\n", "")).toEqual([
+      { id: "inside", sourceOffset: 0, anchorText: "", anchorOccurrence: 0 },
+      { id: "after", sourceOffset: 4, anchorText: "Two", anchorOccurrence: 0 },
+    ]);
+  });
 });
 
 describe("presentation comments", () => {
+  it("summarizes Markdown edits and added comments in one status", () => {
+    expect(changeStatusText(true, 1, 0)).toBe("Markdown modified (1 edit)");
+    expect(changeStatusText(true, 3, 2)).toBe("Markdown modified (3 edits) • 2 comments added");
+    expect(changeStatusText(false, 0, 1)).toBe("1 comment added");
+  });
+
   it("places annotations after whole formatted constructs and punctuation", () => {
     expect(markdownInsertionOffset("A **two word phrase**, then more.", "two word phrase", 0)).toBe(22);
     expect(markdownInsertionOffset("Visit [the project](https://example.com).", "the project", 0)).toBe(41);

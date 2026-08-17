@@ -270,8 +270,30 @@ function splitRenderedHtml(html) {
   return slides;
 }
 
+const markdownModelCaches = new WeakMap();
+
+function markdownModelCache(source) {
+  if (!source || (typeof source !== "object" && typeof source !== "function")) return null;
+  let cache = markdownModelCaches.get(source);
+  if (!cache) {
+    cache = new Map();
+    markdownModelCaches.set(source, cache);
+  }
+  return cache;
+}
+
 export function processMarkdown(markdown, source) {
-  const slides = splitSlides(markdown).map((slideMarkdown) => slideModelFromHtml(safeHtml(slideMarkdown), slideMarkdown));
+  const cache = markdownModelCache(source);
+  const slides = splitSlides(markdown).map((slideMarkdown, index) => {
+    const key = `${index}\u0000${slideMarkdown}`;
+    if (cache?.has(key)) return cache.get(key);
+    const model = slideModelFromHtml(safeHtml(slideMarkdown), slideMarkdown);
+    if (cache) {
+      cache.set(key, model);
+      if (cache.size > 120) cache.delete(cache.keys().next().value);
+    }
+    return model;
+  });
   return { source, slides };
 }
 

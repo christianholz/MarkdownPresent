@@ -85,16 +85,45 @@ function applyImageMeasurements(slide, model, measurements) {
   }
 }
 
-async function loadImageMeasurements(models, assetManager) {
+const imageMeasurementCaches = new WeakMap();
+
+function decodeImageForMeasurement(image, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      image.src = "";
+      reject(new Error("Image check timed out."));
+    }, timeout);
+    image.decode().then(
+      () => { window.clearTimeout(timer); resolve(); },
+      (error) => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+export async function loadImageMeasurements(models, assetManager) {
   const references = [...new Set(models.flatMap((model) => model.images.map((image) => image.src)).filter(Boolean))];
+  let cache = imageMeasurementCaches.get(assetManager);
+  if (!cache) {
+    cache = new Map();
+    imageMeasurementCaches.set(assetManager, cache);
+  }
   const entries = await Promise.all(references.map(async (reference) => {
+    if (cache.has(reference)) return cache.get(reference);
+    const measurement = (async () => {
+      try {
+        const url = await assetManager.getUrl(reference);
+        const image = new Image();
+        image.src = url;
+        await decodeImageForMeasurement(image);
+        if (!image.naturalWidth || !image.naturalHeight) return null;
+        return [reference, { width: image.naturalWidth, height: image.naturalHeight }];
+      } catch {
+        return null;
+      }
+    })();
+    cache.set(reference, measurement);
     try {
-      const url = await assetManager.getUrl(reference);
-      const image = new Image();
-      image.src = url;
-      await image.decode();
-      if (!image.naturalWidth || !image.naturalHeight) return null;
-      return [reference, { width: image.naturalWidth, height: image.naturalHeight }];
+      return await measurement;
     } catch {
       return null;
     }
@@ -267,8 +296,26 @@ function paginateModel(model, measurements) {
   }, index + 1, pages.length));
 }
 
-function paginateDocument(documentModel, measurements) {
-  return documentModel.slides.flatMap((model) => paginateModel(model, measurements));
+function paginationCacheKey(model, measurements, sourceIndex) {
+  if (!model.markdown) return null;
+  const imageMeasurements = model.images.map(({ src }) => {
+    const measurement = measurements.get(src);
+    return `${src}:${measurement?.width || 0}x${measurement?.height || 0}`;
+  }).join("|");
+  return `${sourceIndex}\u0000${model.markdown}\u0000${imageMeasurements}`;
+}
+
+function paginateDocument(documentModel, measurements, cache) {
+  return documentModel.slides.flatMap((model, sourceIndex) => {
+    const key = paginationCacheKey(model, measurements, sourceIndex);
+    if (key && cache.has(key)) return cache.get(key);
+    const pages = paginateModel(model, measurements);
+    if (key) {
+      cache.set(key, pages);
+      if (cache.size > 120) cache.delete(cache.keys().next().value);
+    }
+    return pages;
+  });
 }
 
 export class Presentation {
@@ -280,6 +327,9 @@ export class Presentation {
     this.slides = [];
     this.index = 0;
     this.assetManager = null;
+    this.paginationCache = new Map();
+    this.fontsReady = false;
+    this.fontsReadyPromise = null;
     this.imagePopover = null;
     this.imagePopoverTrigger = null;
     this.escapeLockRequest = 0;
@@ -324,17 +374,33 @@ export class Presentation {
 
   async create(document, assetManager) {
     this.closeImagePopover();
-    this.assetManager?.dispose();
-    this.assetManager = assetManager;
-    this.stage.replaceChildren();
-    await globalThis.document.fonts?.ready;
+    const previousAssetManager = this.assetManager;
+    const canReuseSlides = previousAssetManager === assetManager;
+    if (!canReuseSlides) this.paginationCache.clear();
+    if (!this.fontsReady) {
+      this.fontsReadyPromise ||= Promise.resolve(globalThis.document.fonts?.ready);
+      await this.fontsReadyPromise;
+      this.fontsReady = true;
+    }
     const measurements = await loadImageMeasurements(document.slides, assetManager);
-    document.slides = paginateDocument(document, measurements);
-    this.slides = document.slides.map((model, index) => {
-      const slide = documentFragmentFrom(model, index);
-      this.stage.append(slide);
-      return { model, element: slide, assetsLoaded: false };
+    document.slides = paginateDocument(document, measurements, this.paginationCache);
+    const nextIndex = Math.max(0, Math.min(this.index, document.slides.length - 1));
+    const reusableSlides = canReuseSlides
+      ? new Map(this.slides.map((slide) => [slide.model, slide]))
+      : new Map();
+    const nextSlides = document.slides.map((model, index) => {
+      const reusable = reusableSlides.get(model);
+      const element = reusable?.element || documentFragmentFrom(model, index);
+      element.setAttribute("aria-label", `Slide ${index + 1}`);
+      element.dataset.slideNumber = String(index + 1);
+      element.classList.toggle("is-active", index === nextIndex);
+      return reusable || { model, element, assetsLoaded: false };
     });
+    this.stage.replaceChildren(...nextSlides.map(({ element }) => element));
+    this.slides = nextSlides;
+    this.index = nextIndex;
+    this.assetManager = assetManager;
+    if (previousAssetManager !== assetManager) previousAssetManager?.dispose();
     return this.slides.length;
   }
 

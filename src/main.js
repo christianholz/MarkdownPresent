@@ -2,7 +2,7 @@ import "./style.css";
 import { InlineRepository, LocalRepository } from "./repository.js";
 import { extractUnsupportedMediaReferences, processMarkdown } from "./markdown.js";
 import { AssetManager } from "./assets.js";
-import { Presentation } from "./presentation.js";
+import { loadImageMeasurements, Presentation } from "./presentation.js";
 import { SlideOutline } from "./slide-outline.js";
 import { CONFIG } from "./config.js";
 import { AnnotationManager } from "./annotations.js";
@@ -160,6 +160,7 @@ document.querySelector("#app").innerHTML = `
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
+    <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
       <nav class="slide-outline-list" id="outline-list" aria-label="Jump to slide"></nav>
@@ -202,26 +203,7 @@ function imageReferences(documentModel) {
   return [...new Set(documentModel.slides.flatMap((slide) => slide.images.map((image) => image.src.trim())).filter(Boolean))];
 }
 
-function probeImage(url, timeout = 8000) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    const timer = window.setTimeout(() => {
-      image.src = "";
-      reject(new Error("Image check timed out."));
-    }, timeout);
-    const finish = (result) => {
-      window.clearTimeout(timer);
-      image.onload = null;
-      image.onerror = null;
-      result();
-    };
-    image.onload = () => finish(resolve);
-    image.onerror = () => finish(() => reject(new Error("Image could not be displayed.")));
-    image.src = url;
-  });
-}
-
-async function checkReferences(markdown, repository, source) {
+async function checkReferences(markdown, repository, source, manager) {
   const documentModel = processMarkdown(markdown, source);
   const displayableReferences = imageReferences(documentModel);
   const unsupportedReferences = extractUnsupportedMediaReferences(markdown);
@@ -230,20 +212,9 @@ async function checkReferences(markdown, repository, source) {
     return { documentModel, references, unavailable: unsupportedReferences };
   }
 
-  const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
-  try {
-    const results = await Promise.all(displayableReferences.map(async (reference) => {
-      try {
-        await probeImage(await manager.getUrl(reference));
-        return null;
-      } catch {
-        return reference;
-      }
-    }));
-    return { documentModel, references, unavailable: [...new Set([...results.filter(Boolean), ...unsupportedReferences])] };
-  } finally {
-    manager.dispose();
-  }
+  const measurements = await loadImageMeasurements(documentModel.slides, manager);
+  const unavailableImages = displayableReferences.filter((reference) => !measurements.has(reference));
+  return { documentModel, references, unavailable: [...new Set([...unavailableImages, ...unsupportedReferences])] };
 }
 
 function unavailableMessage(items) {
@@ -265,7 +236,9 @@ async function loadDeck(repository, source, label, state = {}) {
     const requestedIndex = state.index ?? slideFromHash();
     const documentModel = processMarkdown(markdown, source);
     if (!documentModel.slides.length) throw new Error("The Markdown file does not contain any slide content.");
-    const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
+    const manager = state.assetManager
+      || (state.keepDeckVisible ? presentation?.assetManager : null)
+      || new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
     presentation ||= new Presentation({
       stage: $("#stage"),
       counter: $("#slide-number"),
@@ -297,6 +270,7 @@ async function loadDeck(repository, source, label, state = {}) {
         annotationState: details.annotationState,
         index: presentation.index,
         keepDeckVisible: true,
+        assetManager: manager,
       }),
     });
     outline ||= new SlideOutline({
@@ -396,13 +370,16 @@ async function filesFromDrop(dataTransfer) {
 }
 
 async function openLocalMarkdown(file) {
+  clearPasteValidation();
   const source = { path: pathFor(file) };
   const repository = new LocalRepository(selectedFiles, file);
+  const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
   setAssetStatus($("#file-status"), "Checking referenced items…", "checking");
   try {
     const markdown = await repository.readText();
-    const result = await checkReferences(markdown, repository, source);
+    const result = await checkReferences(markdown, repository, source, manager);
     if (result.unavailable.length) {
+      manager.dispose();
       setAssetStatus($("#file-status"), unavailableMessage(result.unavailable), "error");
       return;
     }
@@ -411,8 +388,9 @@ async function openLocalMarkdown(file) {
       result.references.length ? "All referenced items are accessible." : "No referenced items need checking.",
       "success",
     );
-    await loadDeck(repository, source, file.name);
+    await loadDeck(repository, source, file.name, { markdown, assetManager: manager });
   } catch (error) {
+    if (presentation?.assetManager !== manager) manager.dispose();
     setAssetStatus($("#file-status"), `The presentation could not be checked: ${error.message}`, "error");
   }
 }
@@ -468,17 +446,40 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
 
 let pasteCheckTimer;
 let pasteCheckRequest = 0;
+let pasteValidation = null;
+
+function clearPasteValidation() {
+  pasteValidation?.manager.dispose();
+  pasteValidation = null;
+}
 
 async function checkPastedMarkdown({ present = false } = {}) {
   const request = ++pasteCheckRequest;
   const markdown = $("#markdown-input").value;
+  if (pasteValidation?.markdown === markdown) {
+    const validation = pasteValidation;
+    if (present) {
+      pasteValidation = null;
+      await loadDeck(validation.repository, validation.source, "Pasted deck", {
+        markdown,
+        assetManager: validation.manager,
+      });
+    }
+    return true;
+  }
+  clearPasteValidation();
   const repository = new InlineRepository(markdown);
   const source = { path: "slides.md" };
+  const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
   setAssetStatus($("#paste-status"), "Checking referenced items…", "checking");
   try {
-    const result = await checkReferences(markdown, repository, source);
-    if (request !== pasteCheckRequest) return false;
+    const result = await checkReferences(markdown, repository, source, manager);
+    if (request !== pasteCheckRequest) {
+      manager.dispose();
+      return false;
+    }
     if (result.unavailable.length) {
+      manager.dispose();
       setAssetStatus($("#paste-status"), unavailableMessage(result.unavailable), "error");
       return false;
     }
@@ -487,9 +488,11 @@ async function checkPastedMarkdown({ present = false } = {}) {
       result.references.length ? "All referenced items are accessible." : "No referenced items need checking.",
       "success",
     );
-    if (present) await loadDeck(repository, source, "Pasted deck");
+    if (present) await loadDeck(repository, source, "Pasted deck", { markdown, assetManager: manager });
+    else pasteValidation = { markdown, repository, source, manager };
     return true;
   } catch (error) {
+    if (presentation?.assetManager !== manager) manager.dispose();
     if (request === pasteCheckRequest) {
       setAssetStatus($("#paste-status"), `The Markdown could not be checked: ${error.message}`, "error");
     }
@@ -498,6 +501,7 @@ async function checkPastedMarkdown({ present = false } = {}) {
 }
 
 function schedulePasteCheck() {
+  if (pasteValidation?.markdown !== $("#markdown-input").value) clearPasteValidation();
   window.clearTimeout(pasteCheckTimer);
   pasteCheckTimer = window.setTimeout(() => { void checkPastedMarkdown(); }, 350);
 }

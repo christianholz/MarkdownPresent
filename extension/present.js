@@ -25,6 +25,7 @@ document.querySelector("#app").innerHTML = `
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
+    <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
       <nav class="slide-outline-list" id="outline-list" aria-label="Jump to slide"></nav>
@@ -81,6 +82,7 @@ async function boot() {
 
     const originalMarkdown = payload.markdown || "";
     const repository = new GithubPageRepository(payload.source, originalMarkdown, payload.sourceTabId);
+    const manager = new AssetManager(repository, payload.source, CONFIG.presentation.assetConcurrency);
     presentation = new Presentation({
       stage: $("#stage"),
       counter: $("#slide-number"),
@@ -105,7 +107,6 @@ async function boot() {
         ? processMarkdown(markdown, payload.source)
         : processRenderedHtml(payload.renderedHtml, payload.source);
       if (!documentModel.slides.length) throw new Error("The GitHub file does not contain any slide content.");
-      const manager = new AssetManager(repository, payload.source, CONFIG.presentation.assetConcurrency);
       await presentation.create(documentModel, manager);
       annotations?.destroy();
       const title = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
