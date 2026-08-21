@@ -1,5 +1,5 @@
 import { CONFIG } from "./config.js";
-import { fittedImageStackWidth } from "./layout.js";
+import { applySpacingGlue, fittedImageStackWidth } from "./layout.js";
 import titleSlideTemplate from "./templates/title-slide.html?raw";
 import contentSlideTemplate from "./templates/content-slide.html?raw";
 import imageSlideTemplate from "./templates/image-slide.html?raw";
@@ -73,7 +73,7 @@ function addContinuationSuffix(model, page, total) {
 function applyImageMeasurements(slide, model, measurements) {
   const body = slide.querySelector(".slide-body");
   const media = slide.querySelector(".slide-media");
-  if (!body || !media || model.images.length < 2) return;
+  if (!body || !media || model.images.length < 2 || slide.classList.contains("is-caption-layout")) return;
   const ratios = model.images.map(({ src }) => {
     const measurement = measurements.get(src);
     return measurement ? measurement.width / measurement.height : 1;
@@ -83,6 +83,25 @@ function applyImageMeasurements(slide, model, measurements) {
   if (width < media.clientWidth - 0.5) {
     body.style.gridTemplateColumns = `minmax(0, 1fr) ${Math.max(1, width)}px`;
   }
+}
+
+function refreshCaptionLayout(slide) {
+  slide.classList.remove("is-caption-layout");
+  const copy = slide.querySelector(".slide-copy");
+  const media = slide.querySelector(".slide-media");
+  const blocks = copy ? [...copy.children].filter((element) => !element.matches(".slide-comment-card")) : [];
+  const imageCount = media?.querySelectorAll(".image-slot").length || 0;
+  const paragraph = blocks.length === 1 && blocks[0].matches("p") ? blocks[0] : null;
+  if (!paragraph?.textContent.trim() || imageCount < 1 || imageCount > 2) return false;
+
+  media.style.setProperty("--caption-image-count", String(imageCount));
+  slide.classList.add("is-caption-layout");
+  const lineHeight = Number.parseFloat(getComputedStyle(paragraph).lineHeight);
+  const height = paragraph.getBoundingClientRect().height;
+  const isSingleLine = Number.isFinite(lineHeight) && height <= lineHeight * 1.25;
+  slide.classList.toggle("is-caption-layout", isSingleLine);
+  if (!isSingleLine) media.style.removeProperty("--caption-image-count");
+  return isSingleLine;
 }
 
 const imageMeasurementCaches = new WeakMap();
@@ -131,18 +150,20 @@ export async function loadImageMeasurements(models, assetManager) {
   return new Map(entries.filter(Boolean));
 }
 
-function measurementSlide(model, measurements) {
+function measurementSlide(model, measurements, spacingFactor = 1) {
   const slide = documentFragmentFrom(model, 0);
   slide.classList.add("is-active", "is-pagination-measure");
   document.body.append(slide);
-  applyImageMeasurements(slide, model, measurements);
   const copy = slide.querySelector(".slide-copy");
   if (copy) copy.style.fontSize = `${CONFIG.presentation.paginationFontSize}px`;
+  applySpacingGlue(slide, spacingFactor);
+  refreshCaptionLayout(slide);
+  applyImageMeasurements(slide, model, measurements);
   return slide;
 }
 
 function fitsAtPaginationSize(model, measurements) {
-  const slide = measurementSlide(model, measurements);
+  const slide = measurementSlide(model, measurements, 0);
   const copy = slide.querySelector(".slide-copy");
   const fits = !copy || (copy.scrollHeight <= copy.clientHeight + 1 && copy.scrollWidth <= copy.clientWidth + 1);
   slide.remove();
@@ -150,7 +171,7 @@ function fitsAtPaginationSize(model, measurements) {
 }
 
 function contentHeightAtPaginationSize(model, measurements) {
-  const slide = measurementSlide(model, measurements);
+  const slide = measurementSlide(model, measurements, 1);
   const height = slide.querySelector(".slide-copy")?.scrollHeight || 1;
   slide.remove();
   return height;
@@ -449,29 +470,48 @@ export class Presentation {
   fitCurrent() {
     const slide = this.slides[this.index]?.element;
     if (!slide || !slide.classList.contains("is-active")) return;
+    slide.style.setProperty("--slide-number-right", getComputedStyle(slide).paddingRight);
     const body = slide.querySelector(".slide-body");
     const text = slide.querySelector(".slide-copy");
     const media = slide.querySelector(".slide-media");
     if (!body || !text) return;
-    this.fitMedia(slide, body, media);
     text.style.fontSize = `${CONFIG.presentation.maxFontSize}px`;
+    applySpacingGlue(slide, 1);
+    refreshCaptionLayout(slide);
+    this.fitMedia(slide, body, media);
     let low = CONFIG.presentation.minFontSize;
     let high = CONFIG.presentation.maxFontSize;
     const fits = () => text.scrollHeight <= text.clientHeight + 1 && text.scrollWidth <= text.clientWidth + 1 && (!media || media.scrollHeight <= media.clientHeight + 1);
-    if (!fits()) {
+    const maximizeSpacing = () => {
+      applySpacingGlue(slide, 0);
+      if (!fits()) return false;
+      applySpacingGlue(slide, 2);
+      if (fits()) return true;
+      let spacingLow = 0;
+      let spacingHigh = 2;
+      while (spacingHigh - spacingLow > 0.01) {
+        const middle = (spacingLow + spacingHigh) / 2;
+        applySpacingGlue(slide, middle);
+        if (fits()) spacingLow = middle; else spacingHigh = middle;
+      }
+      applySpacingGlue(slide, spacingLow);
+      return true;
+    };
+    if (!maximizeSpacing()) {
       while (high - low > 0.35) {
         const middle = (low + high) / 2;
         text.style.fontSize = `${middle}px`;
         if (fits()) low = middle; else high = middle;
       }
       text.style.fontSize = `${low}px`;
+      maximizeSpacing();
     }
     slide.classList.toggle("is-overflowing", !fits());
   }
 
   fitMedia(slide, body, media) {
     body.style.removeProperty("grid-template-columns");
-    if (!media) return;
+    if (!media || slide.classList.contains("is-caption-layout")) return;
     const images = [...media.querySelectorAll("img")];
     if (images.length < 2 || !slide.classList.contains("is-active")) return;
     const ratios = images.map((image) => image.naturalWidth / image.naturalHeight);

@@ -29,6 +29,19 @@ The heading spans the complete slide. This copy belongs in the left column, whil
 
 ![Single wide layout card](images/card-01.svg)
 
+## One-line caption below one image
+
+One concise observation belongs below the image.
+
+![Single image with a caption below](images/card-03.svg)
+
+## One-line caption below two images
+
+Two related views share one concise caption.
+
+![First comparison view](images/card-04.svg)
+![Second comparison view](images/card-05.svg)
+
 ---
 
 This slide also has one image, but no heading. The content and image columns should use the full available slide height.

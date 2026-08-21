@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { extractFrontMatter, extractUnsupportedMediaReferences, preprocessJekyll, splitSlides } from "../src/markdown.js";
 import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
-import { fittedImageStackWidth } from "../src/layout.js";
+import { fittedImageStackWidth, SLIDE_SPACING_GLUE, spacingGlueValue } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
 import { annotatedMarkdown, changeStatusText, commentsMarkdown, hasEditableListContent, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
@@ -10,10 +10,10 @@ import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } fro
 import { continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
 
 describe("Markdown slide parsing", () => {
-  it("covers all seven layouts in the example deck", () => {
+  it("covers all nine layouts in the example deck", () => {
     const fixture = readFileSync(new URL("../examples/layout-test/test-presentation.md", import.meta.url), "utf8");
-    expect(splitSlides(fixture)).toHaveLength(7);
-    expect(fixture.match(/!\[[^\]]*\]\([^)]*\)/g)).toHaveLength(18);
+    expect(splitSlides(fixture)).toHaveLength(9);
+    expect(fixture.match(/!\[[^\]]*\]\([^)]*\)/g)).toHaveLength(21);
   });
 
   it("parses the two additional example presentations", () => {
@@ -140,6 +140,27 @@ describe("image stack fitting", () => {
 
   it("does not enlarge a short image stack beyond the half-slide column", () => {
     expect(fittedImageStackWidth(500, 700, [2, 2], 20)).toBe(500);
+  });
+});
+
+describe("elastic slide spacing", () => {
+  it("keeps the structural title gap fixed so media aligns across continuation slides", () => {
+    expect(SLIDE_SPACING_GLUE).not.toHaveProperty("--slide-title-after");
+  });
+
+  it("interpolates from minimum through preferred to maximum glue", () => {
+    const glue = SLIDE_SPACING_GLUE["--slide-h3-before"];
+    expect(spacingGlueValue(glue, 0)).toBe(1);
+    expect(spacingGlueValue(glue, 1)).toBe(1.6);
+    expect(spacingGlueValue(glue, 2)).toBe(1.9);
+    expect(spacingGlueValue(glue, 0.5)).toBe(1.3);
+    expect(spacingGlueValue(glue, 1.5)).toBeCloseTo(1.75);
+  });
+
+  it("clamps spacing factors outside the supported range", () => {
+    const glue = SLIDE_SPACING_GLUE["--slide-list-item-gap"];
+    expect(spacingGlueValue(glue, -1)).toBe(glue.min);
+    expect(spacingGlueValue(glue, 3)).toBe(glue.max);
   });
 });
 

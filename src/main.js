@@ -33,6 +33,13 @@ Behavior shows what happened; reflection helps explain why. Neither view is suff
 ![Observed behavior](./examples/layout-test/images/card-01.svg)
 ![Participant reflection](./examples/layout-test/images/card-06.svg)
 
+## Short captions let the figures carry the slide
+
+Two related views, with one concise line underneath.
+
+![Observed path](./examples/layout-test/images/card-04.svg)
+![Expected path](./examples/layout-test/images/card-05.svg)
+
 ## This evidence review deliberately continues onto another slide
 
 The section is intentionally long so the example also demonstrates automatic, image-aware pagination.
