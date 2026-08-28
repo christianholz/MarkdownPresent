@@ -664,6 +664,7 @@ export class AnnotationManager {
   finishInlineEditing() {
     const edit = this.inlineEdit;
     if (!edit) return;
+    const editedElements = [...edit.handlers.keys()];
     this.unlockInlineNestedLists();
     for (const [element, handlers] of edit.handlers) {
       element.removeEventListener("keydown", handlers.keydown);
@@ -676,6 +677,10 @@ export class AnnotationManager {
       element.removeAttribute("aria-invalid");
       element.removeAttribute("title");
       element.classList.remove("is-inline-editing", "has-inline-edit-error");
+    }
+    const selection = window.getSelection();
+    if (selection?.anchorNode && editedElements.some((element) => element.contains(selection.anchorNode))) {
+      selection.removeAllRanges();
     }
   }
 

@@ -63,7 +63,10 @@ button { color: inherit; }
 .tab.is-active { background: white; color: var(--ink); box-shadow: 0 2px 10px rgba(30,32,30,.08); font-weight: 650; }
 .tab-panel { display: none; padding: 18px 14px 12px; }
 .tab-panel.is-active { display: block; }
+.field-label-row { display: flex; min-height: 20px; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .field-label { display: block; margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 750; color: var(--muted); }
+.reset-example { margin: -3px 0 0; padding: 3px 0; border: 0; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; font-weight: 650; }
+.reset-example:hover, .reset-example:focus-visible { text-decoration: underline; text-underline-offset: 2px; outline: none; }
 textarea, input[type="search"] { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 12px 13px; background: white; outline: none; transition: border-color .15s, box-shadow .15s; }
 textarea:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(184, 75, 52, .1); }
 textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Consolas, monospace; }
@@ -114,11 +117,11 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 
 .deck-screen { position: fixed; inset: 0; overflow: hidden; background: #191d1f; color: white; }
 .stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 3.4vh 3.2vw; }
-.slide { --slide-title-after: 4.2cqh; --slide-h3-before: 1.6em; --slide-h4-before: 1.2em; --slide-h5-before: .8em; --slide-h6-before: .8em; --slide-heading-after: .35em; --slide-paragraph-before: .35em; --slide-paragraph-after: .75em; --slide-list-before: .25em; --slide-list-after: .75em; --slide-list-item-gap: .2em; --slide-nested-list-gap: .14em; --slide-caption-gap: 2.4cqh; display: none; position: relative; width: min(93vw, calc(91vh * 16 / 9)); aspect-ratio: 16 / 9; overflow: hidden; padding: clamp(28px, 4.1%, 72px); color: var(--slide-ink); background: var(--slide-paper); box-shadow: 0 22px 75px rgba(0,0,0,.34); container-type: size; }
+.slide { --slide-title-after: 4.2cqh; --slide-h3-before: 1.6em; --slide-h4-before: 1.2em; --slide-h5-before: .8em; --slide-h6-before: .8em; --slide-heading-after: .35em; --slide-paragraph-before: .35em; --slide-paragraph-after: .75em; --slide-list-before: .25em; --slide-list-after: .75em; --slide-list-item-gap: .2em; --slide-nested-list-gap: .14em; --slide-caption-gap: 2.4cqh; display: none; position: relative; width: min(93vw, calc(91vh * 16 / 9)); aspect-ratio: 16 / 9; overflow: hidden; padding: clamp(28px, 4.1%, 72px); color: var(--slide-ink); background: var(--slide-paper); box-shadow: 0 22px 75px rgba(0,0,0,.34); caret-color: transparent; container-type: size; }
 .slide.is-active { display: flex; flex-direction: column; }
 .slide.is-pagination-measure { position: fixed; z-index: -1; top: 0; left: -200vw; width: 1280px; visibility: hidden; pointer-events: none; }
 .slide::after { content: attr(data-slide-number); position: absolute; right: var(--slide-number-right, 4.1%); bottom: 3.1%; color: #777b79; font-size: clamp(11px, 1.35cqw, 19px); font-weight: 650; line-height: 1; }
-.slide-title { flex: 0 0 auto; margin-bottom: var(--slide-title-after); }
+.slide-title { flex: 0 0 auto; margin-bottom: var(--slide-title-after); cursor: default; }
 .slide-title h1 { margin: 0; font-size: clamp(34px, 5.2cqw, 76px); line-height: 1.02; font-weight: 600; letter-spacing: -.045em; }
 .slide-title h2 { margin: 0; font-size: clamp(31px, 4.3cqw, 64px); line-height: 1.04; font-weight: 600; letter-spacing: -.038em; }
 .slide-title h1 strong, .slide-title h2 strong { font-weight: 700; }
@@ -129,7 +132,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide.is-title-slide .slide-copy { justify-content: flex-start; color: #596061; font-size: 28px; max-width: 72%; }
 .slide-body { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4.5%; }
 .slide.has-media .slide-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-.slide-copy { min-width: 0; min-height: 0; overflow: hidden; font-size: 32px; line-height: 1.36; }
+.slide-copy { min-width: 0; min-height: 0; overflow: hidden; cursor: default; font-size: 32px; line-height: 1.36; }
 .slide:not(:has(.slide-title)) .slide-copy { display: flex; flex-direction: column; justify-content: center; }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }

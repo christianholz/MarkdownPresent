@@ -6,6 +6,7 @@ import { loadImageMeasurements, Presentation } from "./presentation.js";
 import { SlideOutline } from "./slide-outline.js";
 import { CONFIG } from "./config.js";
 import { AnnotationManager } from "./annotations.js";
+import { persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "./example-storage.js";
 
 const SAMPLE = `# Research Planning Session
 
@@ -134,7 +135,10 @@ document.querySelector("#app").innerHTML = `
           <p class="source-note">On supported GitHub Markdown pages, click <strong>Present</strong> beside the Raw button.</p>
         </div>
         <div class="tab-panel" data-panel="paste">
-          <label class="field-label" for="markdown-input">Markdown</label>
+          <div class="field-label-row">
+            <label class="field-label" for="markdown-input">Markdown</label>
+            <button class="reset-example" id="reset-example" type="button" hidden>Reset example</button>
+          </div>
           <textarea id="markdown-input" spellcheck="false" aria-label="Markdown source"></textarea>
           <p class="asset-status" id="paste-status" aria-live="polite"></p>
           <button class="primary-button" id="present-paste">Check and present</button>
@@ -187,7 +191,19 @@ let annotations;
 let selectedFiles = [];
 let markdownFiles = [];
 
-$("#markdown-input").value = SAMPLE;
+$("#markdown-input").value = readExampleMarkdown(SAMPLE);
+
+function syncExampleResetButton() {
+  $("#reset-example").hidden = $("#markdown-input").value === SAMPLE;
+}
+
+function savePastedMarkdown(markdown) {
+  $("#markdown-input").value = markdown;
+  persistExampleMarkdown(markdown, SAMPLE);
+  syncExampleResetButton();
+}
+
+syncExampleResetButton();
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
@@ -272,14 +288,18 @@ async function loadDeck(repository, source, label, state = {}) {
       title,
       annotationState: state.annotationState,
       discardLabel: "Return without saving",
-      onMarkdownChange: (nextMarkdown, details = {}) => loadDeck(repository, source, label, {
-        markdown: nextMarkdown,
-        originalMarkdown: details.annotationState?.originalSourceMarkdown ?? originalMarkdown,
-        annotationState: details.annotationState,
-        index: presentation.index,
-        keepDeckVisible: true,
-        assetManager: manager,
-      }),
+      onMarkdownChange: (nextMarkdown, details = {}) => {
+        state.onSourceMarkdownChange?.(nextMarkdown);
+        return loadDeck(repository, source, label, {
+          onSourceMarkdownChange: state.onSourceMarkdownChange,
+          markdown: nextMarkdown,
+          originalMarkdown: details.annotationState?.originalSourceMarkdown ?? originalMarkdown,
+          annotationState: details.annotationState,
+          index: presentation.index,
+          keepDeckVisible: true,
+          assetManager: manager,
+        });
+      },
     });
     outline ||= new SlideOutline({
       panel: $("#slide-outline"),
@@ -471,6 +491,7 @@ async function checkPastedMarkdown({ present = false } = {}) {
       await loadDeck(validation.repository, validation.source, "Pasted deck", {
         markdown,
         assetManager: validation.manager,
+        onSourceMarkdownChange: savePastedMarkdown,
       });
     }
     return true;
@@ -496,7 +517,11 @@ async function checkPastedMarkdown({ present = false } = {}) {
       result.references.length ? "All referenced items are accessible." : "No referenced items need checking.",
       "success",
     );
-    if (present) await loadDeck(repository, source, "Pasted deck", { markdown, assetManager: manager });
+    if (present) await loadDeck(repository, source, "Pasted deck", {
+      markdown,
+      assetManager: manager,
+      onSourceMarkdownChange: savePastedMarkdown,
+    });
     else pasteValidation = { markdown, repository, source, manager };
     return true;
   } catch (error) {
@@ -515,7 +540,21 @@ function schedulePasteCheck() {
 }
 
 $("#present-paste").addEventListener("click", () => { void checkPastedMarkdown({ present: true }); });
-$("#markdown-input").addEventListener("input", schedulePasteCheck);
+$("#markdown-input").addEventListener("input", () => {
+  persistExampleMarkdown($("#markdown-input").value, SAMPLE);
+  syncExampleResetButton();
+  schedulePasteCheck();
+});
+$("#reset-example").addEventListener("click", () => {
+  resetExampleMarkdown();
+  $("#markdown-input").value = SAMPLE;
+  syncExampleResetButton();
+  clearPasteValidation();
+  window.clearTimeout(pasteCheckTimer);
+  pasteCheckRequest += 1;
+  setAssetStatus($("#paste-status"), "Example restored.", "success");
+  $("#markdown-input").focus();
+});
 $("#file-input").addEventListener("change", (event) => { void receiveFiles(event.target.files); });
 $("#folder-input").addEventListener("change", (event) => { void receiveFiles(event.target.files); });
 $("#local-filter").addEventListener("input", renderLocalFiles);

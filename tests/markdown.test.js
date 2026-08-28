@@ -7,6 +7,7 @@ import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
 import { annotatedMarkdown, changeStatusText, commentsMarkdown, hasEditableListContent, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
 import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
+import { EXAMPLE_MARKDOWN_STORAGE_KEY, persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "../src/example-storage.js";
 import { continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
 
 describe("Markdown slide parsing", () => {
@@ -69,6 +70,34 @@ describe("Markdown slide parsing", () => {
   it("flags embedded media types the slide renderer cannot display", () => {
     const markdown = '<video controls src="media/demo.mp4"></video>\n<audio src="audio/clip.ogg"></audio>';
     expect(extractUnsupportedMediaReferences(markdown)).toEqual(["media/demo.mp4", "audio/clip.ogg"]);
+  });
+});
+
+describe("example Markdown persistence", () => {
+  function memoryStorage() {
+    const values = new Map();
+    return {
+      getItem: (key) => values.has(key) ? values.get(key) : null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+      values,
+    };
+  }
+
+  it("restores edited example Markdown and removes the override at the default", () => {
+    const storage = memoryStorage();
+    expect(readExampleMarkdown("# Default", storage)).toBe("# Default");
+    expect(persistExampleMarkdown("# Edited", "# Default", storage)).toBe(true);
+    expect(readExampleMarkdown("# Default", storage)).toBe("# Edited");
+    expect(persistExampleMarkdown("# Default", "# Default", storage)).toBe(false);
+    expect(storage.values.has(EXAMPLE_MARKDOWN_STORAGE_KEY)).toBe(false);
+  });
+
+  it("clears a saved override when the example is reset", () => {
+    const storage = memoryStorage();
+    persistExampleMarkdown("# Edited", "# Default", storage);
+    resetExampleMarkdown(storage);
+    expect(readExampleMarkdown("# Default", storage)).toBe("# Default");
   });
 });
 
