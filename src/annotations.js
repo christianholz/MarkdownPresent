@@ -181,6 +181,11 @@ function locateSlideStarts(sourceMarkdown, slides) {
   return slides.map((slide) => {
     const markdown = slide.model.markdown || "";
     if (slide.model.continuation) return previousStart;
+    if (Number.isInteger(slide.model.sourceStart)) {
+      previousStart = slide.model.sourceStart;
+      cursor = previousStart + markdown.length;
+      return previousStart;
+    }
     const index = markdown ? sourceMarkdown.indexOf(markdown, cursor) : -1;
     if (index >= 0) {
       cursor = index + markdown.length;

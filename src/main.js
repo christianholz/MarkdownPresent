@@ -7,6 +7,7 @@ import { SlideOutline } from "./slide-outline.js";
 import { CONFIG } from "./config.js";
 import { AnnotationManager } from "./annotations.js";
 import { persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "./example-storage.js";
+import { DocumentSession } from "./document-session.js";
 
 const SAMPLE = `# Research Planning Session
 
@@ -254,8 +255,16 @@ function setAssetStatus(element, message, state = "") {
 async function loadDeck(repository, source, label, state = {}) {
   if (!state.keepDeckVisible) setScreen("loading");
   try {
-    const markdown = state.markdown ?? await repository.readText();
-    const originalMarkdown = state.originalMarkdown ?? markdown;
+    const initialMarkdown = state.markdown ?? await repository.readText();
+    const session = state.session || new DocumentSession({
+      markdown: initialMarkdown,
+      originalMarkdown: state.originalMarkdown ?? initialMarkdown,
+      annotationState: state.annotationState,
+      source,
+      sourcePath: source.path,
+    });
+    const markdown = session.markdown;
+    const originalMarkdown = session.originalMarkdown;
     const requestedIndex = state.index ?? slideFromHash();
     const documentModel = processMarkdown(markdown, source);
     if (!documentModel.slides.length) throw new Error("The Markdown file does not contain any slide content.");
@@ -286,15 +295,14 @@ async function loadDeck(repository, source, label, state = {}) {
       originalSourceMarkdown: state.annotationState?.originalSourceMarkdown ?? originalMarkdown,
       sourcePath: source.path,
       title,
-      annotationState: state.annotationState,
+      annotationState: session.annotationState,
       discardLabel: "Return without saving",
       onMarkdownChange: (nextMarkdown, details = {}) => {
+        session.applyMarkdown(nextMarkdown, details.annotationState);
         state.onSourceMarkdownChange?.(nextMarkdown);
         return loadDeck(repository, source, label, {
           onSourceMarkdownChange: state.onSourceMarkdownChange,
-          markdown: nextMarkdown,
-          originalMarkdown: details.annotationState?.originalSourceMarkdown ?? originalMarkdown,
-          annotationState: details.annotationState,
+          session,
           index: presentation.index,
           keepDeckVisible: true,
           assetManager: manager,

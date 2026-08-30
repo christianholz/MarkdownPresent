@@ -3,6 +3,10 @@ import DOMPurify from "dompurify";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
+export function normalizeMarkdownSource(markdown) {
+  return String(markdown || "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
 function mathExtension() {
   return [
     {
@@ -47,18 +51,68 @@ marked.use({
 });
 
 export function extractFrontMatter(markdown) {
-  const normalized = markdown.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
-  if (!normalized.startsWith("---\n")) return { frontMatter: "", body: normalized };
+  const normalized = normalizeMarkdownSource(markdown);
+  if (!normalized.startsWith("---\n")) return { frontMatter: "", body: normalized, bodyStart: 0 };
   const end = normalized.indexOf("\n---\n", 4);
-  if (end < 0) return { frontMatter: "", body: normalized };
-  return { frontMatter: normalized.slice(4, end), body: normalized.slice(end + 5).replace(/^\s+/, "") };
+  if (end < 0) return { frontMatter: "", body: normalized, bodyStart: 0 };
+  const untrimmedBody = normalized.slice(end + 5);
+  const leadingWhitespace = /^\s+/.exec(untrimmedBody)?.[0].length || 0;
+  return {
+    frontMatter: normalized.slice(4, end),
+    body: untrimmedBody.slice(leadingWhitespace),
+    bodyStart: end + 5 + leadingWhitespace,
+  };
+}
+
+function jekyllReplacements(markdown) {
+  const replacements = [];
+  const collect = (pattern, value) => {
+    for (const match of markdown.matchAll(pattern)) {
+      replacements.push({ start: match.index, end: match.index + match[0].length, value: value(match) });
+    }
+  };
+  collect(/\{\{\s*site\.baseurl\s*\}\}/g, () => "");
+  collect(/\{\{\s*["']([^"']+)["']\s*\|\s*(?:relative_url|absolute_url)\s*\}\}/g, (match) => match[1]);
+  collect(/\{%\s*link\s+([^%]+?)\s*%\}/g, (match) => match[1]);
+  return replacements.sort((left, right) => left.start - right.start || right.end - left.end)
+    .filter((replacement, index, all) => index === 0 || replacement.start >= all[index - 1].end);
+}
+
+export function preprocessJekyllWithMap(markdown) {
+  const source = String(markdown || "");
+  const replacements = jekyllReplacements(source);
+  let text = "";
+  const sourceOffsets = [0];
+  let cursor = 0;
+
+  const appendSource = (start, end) => {
+    for (let index = start; index < end; index += 1) {
+      text += source[index];
+      sourceOffsets.push(index + 1);
+    }
+  };
+
+  for (const replacement of replacements) {
+    appendSource(cursor, replacement.start);
+    if (!replacement.value) {
+      sourceOffsets[sourceOffsets.length - 1] = replacement.end;
+    } else {
+      for (let index = 0; index < replacement.value.length; index += 1) {
+        text += replacement.value[index];
+        const progress = (index + 1) / replacement.value.length;
+        sourceOffsets.push(index === replacement.value.length - 1
+          ? replacement.end
+          : replacement.start + Math.floor((replacement.end - replacement.start) * progress));
+      }
+    }
+    cursor = replacement.end;
+  }
+  appendSource(cursor, source.length);
+  return { text, sourceOffsets };
 }
 
 export function preprocessJekyll(markdown) {
-  return markdown
-    .replace(/\{\{\s*site\.baseurl\s*\}\}/g, "")
-    .replace(/\{\{\s*["']([^"']+)["']\s*\|\s*(?:relative_url|absolute_url)\s*\}\}/g, "$1")
-    .replace(/\{%\s*link\s+([^%]+?)\s*%\}/g, "$1");
+  return preprocessJekyllWithMap(markdown).text;
 }
 
 export function extractUnsupportedMediaReferences(markdown) {
@@ -80,40 +134,58 @@ export function extractUnsupportedMediaReferences(markdown) {
   return [...new Set(references)];
 }
 
-function splitAtSlideBoundaries(markdown) {
-  const lines = markdown.split("\n");
+function splitAtSlideBoundaries(markdown, sourceOffset = 0) {
+  const lines = markdown.match(/[^\n]*(?:\n|$)/g)?.filter(Boolean) || [];
   const slides = [];
   let current = [];
   let fence = null;
+  let offset = 0;
 
-  for (const line of lines) {
+  const commit = () => {
+    const raw = current.map(({ line }) => line).join("");
+    const leading = /^\s*/.exec(raw)?.[0].length || 0;
+    const trailing = /\s*$/.exec(raw)?.[0].length || 0;
+    const end = Math.max(leading, raw.length - trailing);
+    if (end > leading) {
+      slides.push({
+        markdown: raw.slice(leading, end),
+        sourceStart: sourceOffset + current[0].offset + leading,
+        sourceEnd: sourceOffset + current[0].offset + end,
+      });
+    }
+    current = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.endsWith("\n") ? rawLine.slice(0, -1) : rawLine;
+    const lineOffset = offset;
+    offset += rawLine.length;
     const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
     if (fenceMatch) {
       const marker = fenceMatch[1][0];
       fence = fence === marker ? null : (fence || marker);
-      current.push(line);
+      current.push({ line: rawLine, offset: lineOffset });
       continue;
     }
 
     const explicitBreak = !fence && /^\s*(?:<!--\s*slide\s*-->|---)\s*$/i.test(line);
     const headingStart = !fence && /^(?:#|##)\s+/.test(line);
-    if ((explicitBreak || headingStart) && current.some((item) => item.trim())) {
-      slides.push(current.join("\n").trim());
-      current = [];
-    }
+    if ((explicitBreak || headingStart) && current.some((item) => item.line.trim())) commit();
     if (explicitBreak) continue;
-    current.push(line);
+    current.push({ line: rawLine, offset: lineOffset });
   }
 
-  if (current.some((item) => item.trim())) slides.push(current.join("\n").trim());
+  if (current.some((item) => item.line.trim())) commit();
   return slides;
 }
 
+export function splitSlideSections(markdown) {
+  const { body, bodyStart } = extractFrontMatter(markdown);
+  return splitAtSlideBoundaries(body, bodyStart);
+}
+
 export function splitSlides(markdown) {
-  const { body } = extractFrontMatter(markdown);
-  const processed = preprocessJekyll(body).trim();
-  if (!processed) return [];
-  return splitAtSlideBoundaries(processed);
+  return splitSlideSections(markdown).map(({ markdown: slideMarkdown }) => preprocessJekyll(slideMarkdown));
 }
 
 function safeHtml(markdown) {
@@ -169,7 +241,7 @@ function annotateListSourceRanges(token, list, start) {
   });
 }
 
-function annotateSourceRanges(fragment, markdown) {
+function annotateSourceRanges(fragment, markdown, sourceOffsets = null) {
   const elements = [...fragment.children];
   let elementCursor = 0;
   let sourceCursor = 0;
@@ -185,8 +257,10 @@ function annotateSourceRanges(fragment, markdown) {
     const elementIndex = elementCursor + relativeIndex;
     const element = elements[elementIndex];
     elementCursor = elementIndex + 1;
-    setSourceRange(element, start, start + token.raw.length, token.type);
-    if (token.type === "list") annotateListSourceRanges(token, element, start);
+    const mappedStart = sourceOffsets?.[start] ?? start;
+    const mappedEnd = sourceOffsets?.[start + token.raw.length] ?? (start + token.raw.length);
+    setSourceRange(element, mappedStart, mappedEnd, token.type);
+    if (token.type === "list") annotateListSourceRanges(token, element, mappedStart);
   }
 }
 
@@ -204,10 +278,10 @@ function hasMeaningfulSlideContent(fragment) {
   return Boolean(fragment.querySelector("table, ul, ol, pre, blockquote, hr, math, .math-display"));
 }
 
-function slideModelFromHtml(html, markdown = "") {
+function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceStart = null, sourceEnd = null) {
   const template = document.createElement("template");
   template.innerHTML = html;
-  if (markdown) annotateSourceRanges(template.content, markdown);
+  if (markdown) annotateSourceRanges(template.content, markdown, sourceOffsets);
   const title = extractTitle(template.content);
   const images = [];
   const imageParents = new Set();
@@ -231,7 +305,7 @@ function slideModelFromHtml(html, markdown = "") {
     }
   }
   const imageOnly = images.length > 0 && !hasMeaningfulSlideContent(template.content);
-  return { markdown, title, content: template.content, images, imageOnly };
+  return { markdown, sourceStart, sourceEnd, title, content: template.content, images, imageOnly };
 }
 
 function splitRenderedHtml(html) {
@@ -284,10 +358,17 @@ function markdownModelCache(source) {
 
 export function processMarkdown(markdown, source) {
   const cache = markdownModelCache(source);
-  const slides = splitSlides(markdown).map((slideMarkdown, index) => {
-    const key = `${index}\u0000${slideMarkdown}`;
+  const slides = splitSlideSections(markdown).map((section, index) => {
+    const { text: renderedMarkdown, sourceOffsets } = preprocessJekyllWithMap(section.markdown);
+    const key = `${index}\u0000${section.sourceStart}\u0000${section.markdown}`;
     if (cache?.has(key)) return cache.get(key);
-    const model = slideModelFromHtml(safeHtml(slideMarkdown), slideMarkdown);
+    const model = slideModelFromHtml(
+      safeHtml(renderedMarkdown),
+      section.markdown,
+      sourceOffsets,
+      section.sourceStart,
+      section.sourceEnd,
+    );
     if (cache) {
       cache.set(key, model);
       if (cache.size > 120) cache.delete(cache.keys().next().value);

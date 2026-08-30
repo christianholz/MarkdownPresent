@@ -7,6 +7,7 @@ import { GithubPageRepository } from "../src/repository.js";
 import { SlideOutline } from "../src/slide-outline.js";
 import { AnnotationManager } from "../src/annotations.js";
 import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
+import { DocumentSession } from "../src/document-session.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -123,10 +124,18 @@ async function boot() {
       onSelect: (index) => presentation?.show(index),
     });
 
-    const renderDeck = async (markdown, requestedIndex, keepDeckVisible = false, annotationState) => {
+    const session = new DocumentSession({
+      markdown: restoredDraft?.markdown ?? originalMarkdown,
+      originalMarkdown: restoredDraft?.annotationState?.originalSourceMarkdown ?? originalMarkdown,
+      annotationState: restoredDraft?.annotationState,
+      source: payload.source,
+      sourcePath: payload.source.path,
+    });
+
+    const renderDeck = async (requestedIndex, keepDeckVisible = false) => {
       if (!keepDeckVisible) setScreen("loading");
-      const documentModel = markdown
-        ? processMarkdown(markdown, payload.source)
+      const documentModel = session.markdown
+        ? processMarkdown(session.markdown, payload.source)
         : processRenderedHtml(payload.renderedHtml, payload.source);
       if (!documentModel.slides.length) throw new Error("The GitHub file does not contain any slide content.");
       await presentation.create(documentModel, manager);
@@ -140,17 +149,23 @@ async function boot() {
         deck: $(".deck-screen"),
         downloadButton: $("#download-comments"),
         presentation,
-        sourceMarkdown: markdown,
-        originalSourceMarkdown: annotationState?.originalSourceMarkdown ?? originalMarkdown,
+        sourceMarkdown: session.markdown,
+        originalSourceMarkdown: session.originalMarkdown,
         sourcePath: payload.source.path,
         title,
-        annotationState,
+        annotationState: session.annotationState,
         discardLabel: "Leave tab without saving",
-        onStateChange: originalMarkdown ? persistDraft : undefined,
+        onStateChange: originalMarkdown ? (state) => {
+          session.captureAnnotationState(state);
+          return persistDraft(state);
+        } : undefined,
         onDiscard: originalMarkdown ? discardDraft : undefined,
         onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
         onMarkdownChange: originalMarkdown
-          ? (nextMarkdown, details = {}) => renderDeck(nextMarkdown, presentation.index, true, details.annotationState)
+          ? (nextMarkdown, details = {}) => {
+            session.applyMarkdown(nextMarkdown, details.annotationState);
+            return renderDeck(presentation.index, true);
+          }
           : undefined,
       });
       outline.setSlides(documentModel.slides);
@@ -160,12 +175,7 @@ async function boot() {
       await Promise.allSettled(presentation.slides.map((_, index) => presentation.loadAssets(index)));
     };
 
-    await renderDeck(
-      restoredDraft?.markdown ?? originalMarkdown,
-      slideFromHash(),
-      false,
-      restoredDraft?.annotationState,
-    );
+    await renderDeck(slideFromHash(), false);
     await chrome.storage.local.remove(storageKey);
   } catch (error) { showError(error); }
 }
