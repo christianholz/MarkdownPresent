@@ -10,6 +10,7 @@ import { persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } fro
 import { DocumentSession } from "./document-session.js";
 import { HistoryController } from "./history.js";
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "./asset-workspace.js";
+import { exportPresentationPdf } from "./pdf-export.js";
 import {
   pastedSlideUrl,
   positionStorageKey,
@@ -184,6 +185,7 @@ document.querySelector("#app").innerHTML = `
       <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
       <button id="add-image" aria-label="Add an image to this slide" title="Add image">▧+</button>
       <input id="image-input" type="file" accept="image/*" hidden />
+      <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">PDF</button>
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
@@ -202,6 +204,7 @@ document.querySelector("#app").innerHTML = `
       <button id="resume-slide" type="button">Resume</button>
       <button id="resume-start" type="button">Start at beginning</button>
     </section>
+    <p class="pdf-preparing-status" id="pdf-status" role="status" hidden>Preparing every slide for PDF…</p>
     <div class="progress-track"><div id="progress"></div></div>
   </section>
 
@@ -705,6 +708,7 @@ $("#back-home").addEventListener("click", (event) => {
 });
 $("#error-home").addEventListener("click", () => setScreen("home"));
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
 $("#add-image").addEventListener("click", () => $("#image-input").click());
 $("#image-input").addEventListener("change", async (event) => {
   const [file] = event.target.files;

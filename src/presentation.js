@@ -554,6 +554,27 @@ export class Presentation {
     slide.classList.toggle("is-overflowing", !fits());
   }
 
+  async prepareAllSlides() {
+    if (!this.slides.length) return;
+    const activeIndex = this.index;
+    this.closeImagePopover();
+    this.stage.classList.add("is-pdf-preparing");
+    try {
+      await Promise.all(this.slides.map((_, index) => this.loadAssets(index)));
+      await Promise.resolve(document.fonts?.ready);
+      for (let index = 0; index < this.slides.length; index += 1) {
+        this.index = index;
+        this.slides.forEach(({ element }, candidate) => element.classList.toggle("is-active", candidate === index));
+        this.fitCurrent();
+      }
+    } finally {
+      this.index = activeIndex;
+      this.slides.forEach(({ element }, index) => element.classList.toggle("is-active", index === activeIndex));
+      this.stage.classList.remove("is-pdf-preparing");
+      this.fitCurrent();
+    }
+  }
+
   fitMedia(slide, body, media) {
     body.style.removeProperty("grid-template-columns");
     if (!media || slide.classList.contains("is-caption-layout")) return;

@@ -11,6 +11,7 @@ import { DocumentSession } from "../src/document-session.js";
 import { HistoryController } from "../src/history.js";
 import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresentationPosition } from "../src/positions.js";
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "../src/asset-workspace.js";
+import { exportPresentationPdf } from "../src/pdf-export.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -32,6 +33,7 @@ document.querySelector("#app").innerHTML = `
       <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
       <button id="add-image" aria-label="Add an image to this slide" title="Add image">▧+</button>
       <input id="image-input" type="file" accept="image/*" hidden />
+      <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">PDF</button>
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
@@ -46,6 +48,7 @@ document.querySelector("#app").innerHTML = `
       <button id="resume-slide" type="button">Resume</button>
       <button id="resume-start" type="button">Start at beginning</button>
     </section>
+    <p class="pdf-preparing-status" id="pdf-status" role="status" hidden>Preparing every slide for PDF…</p>
     <aside class="history-panel" id="history-panel" aria-label="Edit history" hidden>
       <header class="slide-outline-header"><strong>Edit history</strong><button id="history-close" aria-label="Close edit history">×</button></header>
       <div class="history-list" id="history-list"></div>
@@ -275,6 +278,7 @@ $("#close").addEventListener("click", (event) => {
 });
 $("#close-error").addEventListener("click", () => window.close());
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
 $("#add-image").addEventListener("click", () => $("#image-input").click());
 $("#image-input").addEventListener("change", async (event) => {
   const [file] = event.target.files;
