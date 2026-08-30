@@ -552,6 +552,7 @@ export class Presentation {
       maximizeSpacing();
     }
     slide.classList.toggle("is-overflowing", !fits());
+    this.stage.dispatchEvent(new CustomEvent("mdpresent:fit", { detail: { index: this.index } }));
   }
 
   async prepareAllSlides() {

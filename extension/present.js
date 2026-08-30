@@ -13,6 +13,7 @@ import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresen
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "../src/asset-workspace.js";
 import { exportPresentationPdf } from "../src/pdf-export.js";
 import { requestGitHubToken, writeDeckToGitHub } from "../src/github-writeback.js";
+import { LayoutDiagnostics } from "../src/diagnostics.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -69,6 +70,7 @@ let historyController;
 let positionKey;
 let suppressPositionPersistence = false;
 let activeAssetHandler = null;
+let diagnostics;
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
@@ -253,6 +255,8 @@ async function boot() {
           : undefined,
       });
       outline.setSlides(documentModel.slides);
+      diagnostics ||= new LayoutDiagnostics(presentation);
+      diagnostics.refresh();
       historyController ||= new HistoryController({
         panel: $("#history-panel"),
         list: $("#history-list"),

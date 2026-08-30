@@ -11,6 +11,7 @@ import { DocumentSession } from "./document-session.js";
 import { HistoryController } from "./history.js";
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "./asset-workspace.js";
 import { exportPresentationPdf } from "./pdf-export.js";
+import { LayoutDiagnostics } from "./diagnostics.js";
 import {
   pastedSlideUrl,
   positionStorageKey,
@@ -222,6 +223,7 @@ let activePositionKey = null;
 let activeCopySlideLink = null;
 let suppressPositionPersistence = false;
 let activeAssetHandler = null;
+let diagnostics;
 let selectedFiles = [];
 let markdownFiles = [];
 
@@ -398,6 +400,8 @@ async function loadDeck(repository, source, label, state = {}) {
       onCopyLink: (index) => copyText(activeCopySlideLink?.(index)),
     });
     outline.setSlides(documentModel.slides, { copyLinks: Boolean(state.copySlideLink) });
+    diagnostics ||= new LayoutDiagnostics(presentation);
+    diagnostics.refresh();
     historyController ||= new HistoryController({
       panel: $("#history-panel"),
       list: $("#history-list"),

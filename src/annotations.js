@@ -41,7 +41,7 @@ function nearestTextAnchor(slide, clientX, clientY) {
   const walker = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
-      if (node.parentElement?.closest(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu, .image-popover")) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu, .image-popover, .layout-diagnostics")) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -91,7 +91,7 @@ function textAnchorForOccurrence(slide, text, occurrence = 0) {
   const walker = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
-      if (node.parentElement?.closest(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu, .image-popover")) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu, .image-popover, .layout-diagnostics")) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     },
   });

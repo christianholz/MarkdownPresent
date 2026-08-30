@@ -284,6 +284,13 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide-outline-button.is-section .slide-outline-label { font-weight: 750; }
 .slide-outline-number { color: rgba(255,255,255,.38); font-size: 11px; line-height: 1.45; text-align: right; }
 .slide-outline-label { overflow: hidden; font-size: 13px; line-height: 1.35; text-overflow: ellipsis; }
+.has-layout-diagnostics .slide-title { outline: 2px solid rgba(222,126,49,.62); outline-offset: 2px; }
+.has-layout-diagnostics .slide-copy { outline: 2px solid rgba(69,126,207,.58); outline-offset: 2px; }
+.has-layout-diagnostics .slide-media { outline: 2px solid rgba(55,157,114,.62); outline-offset: 2px; }
+.has-layout-diagnostics [data-source-start]:hover { outline: 2px dashed rgba(184,75,52,.82); outline-offset: 2px; }
+.layout-diagnostics { position: absolute; z-index: 24; right: 1.2%; bottom: 1.2%; display: grid; min-width: 285px; gap: 2px; padding: 8px 9px; border: 1px solid rgba(255,255,255,.18); border-radius: 7px; color: rgba(255,255,255,.82); background: rgba(17,21,22,.91); box-shadow: 0 8px 24px rgba(0,0,0,.26); font: 10px/1.35 "SFMono-Regular", Consolas, monospace; pointer-events: none; }
+.layout-diagnostics strong { color: white; font-size: 10px; }
+.layout-diagnostics-element { margin-top: 2px; color: #ef9a87; }
 .resume-prompt { position: fixed; z-index: 8; left: 50%; bottom: 72px; display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 30px); padding: 9px 10px 9px 14px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; color: white; background: rgba(24,28,29,.96); box-shadow: 0 14px 40px rgba(0,0,0,.3); backdrop-filter: blur(14px); transform: translateX(-50%); }
 .resume-prompt span { margin-right: 4px; font-size: 13px; white-space: nowrap; }
 .resume-prompt button { padding: 7px 9px; border: 0; border-radius: 7px; color: white; background: rgba(255,255,255,.1); cursor: pointer; white-space: nowrap; }
@@ -312,7 +319,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 @media print {
   @page { size: 13.333333in 7.5in; margin: 0; }
   html, body, #app { width: 13.333333in; margin: 0; padding: 0; background: white; }
-  .deck-topbar, .deck-controls, .slide-outline, .history-panel, .resume-prompt, .pdf-preparing-status, .unsaved-comment-count, .progress-track, .comment-context-menu, .comment-editor, .comment-save-menu, .slide-comment { display: none !important; }
+  .deck-topbar, .deck-controls, .slide-outline, .history-panel, .resume-prompt, .pdf-preparing-status, .unsaved-comment-count, .progress-track, .comment-context-menu, .comment-editor, .comment-save-menu, .slide-comment, .layout-diagnostics { display: none !important; }
   .deck-screen, .stage { position: static; display: block; width: 13.333333in; height: auto; overflow: visible; background: white; padding: 0; }
   .slide { display: flex !important; flex-direction: column; width: 13.333333in !important; height: 7.5in !important; max-width: none; max-height: none; break-after: page; page-break-after: always; aspect-ratio: auto; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .slide:last-child { break-after: auto; page-break-after: auto; }
