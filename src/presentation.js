@@ -17,6 +17,16 @@ function contentChunks(content) {
       [...node.children].forEach((item, index) => {
         chunks.push({ kind: "list-item", list: node, item, index, start, group: node });
       });
+    } else if (node.matches(".grouped-table") && node.querySelectorAll("tbody > tr").length > 1) {
+      const rows = [...node.querySelectorAll("tbody > tr")];
+      const bottomRule = node.querySelector("tbody")?.classList.contains("has-bottom-rule");
+      rows.forEach((row, index) => {
+        chunks.push({ kind: "table-row", table: node, row, index, bottomRule, group: node });
+      });
+    } else if (node.matches(".slide-toc") && node.children.length > 1) {
+      [...node.children].forEach((item, index) => {
+        chunks.push({ kind: "toc-entry", toc: node, item, index, group: node });
+      });
     } else {
       chunks.push({ kind: "node", node });
     }
@@ -26,24 +36,41 @@ function contentChunks(content) {
 
 function contentFromChunks(chunks) {
   const content = document.createDocumentFragment();
-  let activeList = null;
+  let activeContainer = null;
   let activeGroup = null;
   for (const chunk of chunks) {
     if (chunk.kind === "node") {
       content.append(chunk.node.cloneNode(true));
-      activeList = null;
+      activeContainer = null;
       activeGroup = null;
       continue;
     }
     if (chunk.group !== activeGroup) {
-      activeList = chunk.list.cloneNode(false);
-      if (activeList.matches("ol") && Number.isFinite(chunk.start)) {
-        activeList.setAttribute("start", String(chunk.start + chunk.index));
+      if (chunk.kind === "list-item") {
+        activeContainer = chunk.list.cloneNode(false);
+        if (activeContainer.matches("ol") && Number.isFinite(chunk.start)) {
+          activeContainer.setAttribute("start", String(chunk.start + chunk.index));
+        }
+      } else if (chunk.kind === "table-row") {
+        activeContainer = chunk.table.cloneNode(true);
+        const body = activeContainer.querySelector("tbody");
+        body?.replaceChildren();
+        body?.classList.remove("has-bottom-rule");
+      } else if (chunk.kind === "toc-entry") {
+        activeContainer = chunk.toc.cloneNode(false);
       }
-      content.append(activeList);
+      content.append(activeContainer);
       activeGroup = chunk.group;
     }
-    activeList.append(chunk.item.cloneNode(true));
+    if (chunk.kind === "table-row") {
+      const body = activeContainer.querySelector("tbody");
+      body?.append(chunk.row.cloneNode(true));
+      if (chunk.bottomRule && chunk.index === chunk.table.querySelectorAll("tbody > tr").length - 1) {
+        body?.classList.add("has-bottom-rule");
+      }
+    } else {
+      activeContainer.append((chunk.item || chunk.row).cloneNode(true));
+    }
   }
   return content;
 }
@@ -246,6 +273,14 @@ function continuationBreakPenalty(chunks, index) {
     }
     return continuationListBreakPenalty(leftCount, rightCount);
   }
+  if (before.kind === "table-row" && after.kind === "table-row" && before.group === after.group) {
+    let leftCount = 0;
+    let rightCount = 0;
+    for (let cursor = index - 1; cursor >= 0 && chunks[cursor].kind === "table-row" && chunks[cursor].group === before.group; cursor -= 1) leftCount += 1;
+    for (let cursor = index; cursor < chunks.length && chunks[cursor].kind === "table-row" && chunks[cursor].group === after.group; cursor += 1) rightCount += 1;
+    return continuationListBreakPenalty(leftCount, rightCount);
+  }
+  if (before.kind === "toc-entry" && before.item.matches(".is-section")) return 1_000_000;
   return 0;
 }
 
@@ -359,6 +394,16 @@ export class Presentation {
         event.preventDefault();
         event.stopPropagation();
         if (!event.target.closest?.(".image-popover-image, .image-popover-close")) this.closeImagePopover(true);
+        return;
+      }
+      const tocEntry = event.target.closest?.("[data-toc-source-start]");
+      if (tocEntry && this.stage.contains(tocEntry)) {
+        const sourceStart = Number(tocEntry.dataset.tocSourceStart);
+        const index = this.slides.findIndex((slide) => slide.model.sourceStart === sourceStart);
+        if (index >= 0) {
+          event.preventDefault();
+          this.show(index);
+        }
         return;
       }
       const image = event.target.closest?.(".image-slot img");

@@ -155,6 +155,34 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .markdown-body table { width: 100%; border-collapse: collapse; margin: .55em 0; font-size: .83em; }
 .markdown-body th, .markdown-body td { padding: .38em .48em; border-bottom: 1px solid #d7d3c8; text-align: left; }
 .markdown-body th { border-bottom: 2px solid var(--ink); }
+.grouped-table { width: 100%; container-type: inline-size; }
+.grouped-table .academic-table { width: 100%; margin: .35em 0; table-layout: auto; border-collapse: collapse; color: var(--slide-ink); font-size: .68em; }
+.grouped-table .academic-table.compact-table { font-size: clamp(9px, 1.3cqi, 13px); }
+.grouped-table .academic-table th, .grouped-table .academic-table td { padding: .45em .25em; border: 0; overflow-wrap: anywhere; text-align: center; vertical-align: middle; white-space: normal; }
+.grouped-table .academic-table th:first-child, .grouped-table .academic-table td:first-child { text-align: left; }
+.grouped-table .academic-table thead th { color: #0f172a; font-weight: 600; overflow-wrap: normal; white-space: nowrap; }
+.grouped-table .academic-table thead tr:last-child th, .grouped-table .academic-table thead th[rowspan] { border-bottom: 2px solid #111; }
+.grouped-table .academic-table thead th.group-heading { position: relative; }
+.grouped-table .academic-table thead th.group-heading.has-underline::after { content: ""; position: absolute; right: .5em; bottom: 0; left: .5em; border-bottom: 1px solid #111; }
+.grouped-table .academic-table thead tr:first-child th.group-heading.has-underline:last-child::after { right: 0; }
+.grouped-table .academic-table thead tr:not(:first-child) th:first-child { text-align: center; }
+.grouped-table .academic-table tbody.has-bottom-rule tr:last-child td { border-bottom: 2px solid #111; }
+.grouped-table .academic-table tbody tr.has-top-border td { border-top: 1px solid #111; }
+.markdown-body .caption { margin-top: .55em; color: #5d6364; font-size: .62em; line-height: 1.32; }
+.slide-toc { display: flex; flex-direction: column; gap: .12em; margin: .1em 0; }
+.toc-entry { display: block; width: 100%; padding: .13em .2em .13em 1.35em; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; line-height: 1.24; text-align: left; }
+.toc-entry.is-section { padding-top: .42em; padding-left: .2em; color: var(--accent); font-weight: 700; }
+.toc-entry:hover, .toc-entry:focus-visible { outline: none; background: color-mix(in srgb, var(--accent-soft) 68%, transparent); }
+.code-block { position: relative; }
+.code-language { position: absolute; top: .45em; right: .65em; color: #8f9b9f; font: 600 .68em/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
+.hljs { color: #f2f0e9; }
+.hljs-comment, .hljs-quote { color: #8c999b; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: #ef8c76; }
+.hljs-string, .hljs-title, .hljs-name, .hljs-type, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #c7d889; }
+.hljs-number, .hljs-meta, .hljs-built_in, .hljs-builtin-name, .hljs-params { color: #e4bd76; }
+.hljs-variable, .hljs-template-variable, .hljs-selector-id, .hljs-selector-class { color: #8fc8df; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
 .math-display { overflow: hidden; margin: .55em 0; }
 .slide-media { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2.4cqh; }
 .image-slot { min-width: 0; min-height: 0; flex: 0 0 auto; display: grid; place-items: center; margin: 0; overflow: visible; background: transparent; }

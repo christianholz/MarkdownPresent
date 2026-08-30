@@ -1,7 +1,36 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import katex from "katex";
+import hljs from "highlight.js/lib/core";
+import bash from "highlight.js/lib/languages/bash";
+import cpp from "highlight.js/lib/languages/cpp";
+import css from "highlight.js/lib/languages/css";
+import java from "highlight.js/lib/languages/java";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import latex from "highlight.js/lib/languages/latex";
+import markdownLanguage from "highlight.js/lib/languages/markdown";
+import python from "highlight.js/lib/languages/python";
+import rust from "highlight.js/lib/languages/rust";
+import swift from "highlight.js/lib/languages/swift";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
 import "katex/dist/katex.min.css";
+
+for (const [name, language] of Object.entries({
+  bash, cpp, css, java, javascript, json, markdown: markdownLanguage,
+  latex, python, rust, swift, typescript, xml, yaml,
+})) hljs.registerLanguage(name, language);
+
+const CODE_LANGUAGE_ALIASES = Object.freeze({
+  c: "cpp", h: "cpp", cc: "cpp", cxx: "cpp", sh: "bash", shell: "bash",
+  js: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript",
+  html: "xml", svg: "xml", md: "markdown", yml: "yaml", py: "python",
+  tex: "latex", text: "plaintext", txt: "plaintext",
+});
+
+let activeTocEntries = [];
 
 export function normalizeMarkdownSource(markdown) {
   return String(markdown || "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
@@ -38,6 +67,154 @@ function mathExtension() {
   ];
 }
 
+function tableCells(line) {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function isTableRule(line) {
+  return line.trim().startsWith("|") && !line.replace(/[|:\-\s]/g, "");
+}
+
+function tableCell(text, lexer) {
+  return { text, tokens: lexer.inlineTokens(text) };
+}
+
+function parseGroupedTable(source, lexer) {
+  const lines = source.replace(/^\s+|\s+$/g, "").split("\n").map((line) => line.trim()).filter(Boolean);
+  let tableClass = "caption-font-size";
+  const pipeLines = [];
+  for (const line of lines) {
+    const attributes = /^\{:\s*((?:\.[A-Za-z][\w-]*\s*)+)\}$/.exec(line);
+    if (attributes) {
+      tableClass = attributes[1].match(/\.[A-Za-z][\w-]*/g)?.map((name) => name.slice(1)).join(" ") || tableClass;
+    } else if (line.startsWith("|")) pipeLines.push(line);
+  }
+  const contentLines = pipeLines.filter((line) => !isTableRule(line));
+  if (contentLines.length < 2 || !/\|\s*::\d+_?\s+/.test(contentLines[0])) return null;
+
+  const firstHeader = tableCells(contentLines[0]).map((text) => {
+    const group = /^::(\d+)(_?)\s+(.*)$/.exec(text);
+    return group
+      ? { kind: "group", span: Math.max(1, Number(group[1])), underline: Boolean(group[2]), ...tableCell(group[3], lexer) }
+      : { kind: "leading", ...tableCell(text, lexer) };
+  });
+  const secondHeader = tableCells(contentLines[1])
+    .filter((text) => text !== "^")
+    .map((text) => tableCell(text, lexer));
+  const body = [];
+  let contentIndex = 0;
+  let pendingRule = false;
+  for (const line of pipeLines) {
+    if (isTableRule(line)) {
+      if (contentIndex > 2) pendingRule = true;
+      continue;
+    }
+    contentIndex += 1;
+    if (contentIndex <= 2) continue;
+    body.push({ cells: tableCells(line).map((text) => tableCell(text, lexer)), topRule: pendingRule });
+    pendingRule = false;
+  }
+  return {
+    tableClass,
+    firstHeader,
+    secondHeader,
+    body,
+    bottomRule: Boolean(pipeLines.length && isTableRule(pipeLines.at(-1))),
+  };
+}
+
+function groupedTableExtension() {
+  return {
+    name: "groupedTable",
+    level: "block",
+    start(src) {
+      const capture = src.search(/\{%\s*capture\s+[A-Za-z_][\w-]*\s*%\}/);
+      const direct = src.search(/(?:^|\n)(?:\{:\s*(?:\.[A-Za-z][\w-]*\s*)+\}\s*\n)?\|[^\n]*\|\s*$/m);
+      if (capture < 0) return direct;
+      if (direct < 0) return capture;
+      return Math.min(capture, direct);
+    },
+    tokenizer(src) {
+      const captured = /^\{%\s*capture\s+([A-Za-z_][\w-]*)\s*%\}\s*\n([\s\S]*?)\n?\{%\s*endcapture\s*%\}\s*\n\{%\s*include\s+grouped_table\.html\s+table\s*=\s*([A-Za-z_][\w-]*)\s*%\}(?:\n|$)/.exec(src);
+      if (captured && captured[1] === captured[3]) {
+        const table = parseGroupedTable(captured[2], this.lexer);
+        if (table) return { type: "groupedTable", raw: captured[0], table };
+      }
+
+      const lines = src.split("\n");
+      const selected = [];
+      let lineCount = 0;
+      if (/^\{:\s*(?:\.[A-Za-z][\w-]*\s*)+\}\s*$/.test(lines[0])) {
+        selected.push(lines[0]);
+        lineCount += 1;
+      }
+      while (lineCount < lines.length && /^\s*\|/.test(lines[lineCount])) {
+        selected.push(lines[lineCount]);
+        lineCount += 1;
+      }
+      const table = parseGroupedTable(selected.join("\n"), this.lexer);
+      if (!table) return undefined;
+      const raw = lines.slice(0, lineCount).join("\n") + (lineCount < lines.length ? "\n" : "");
+      return { type: "groupedTable", raw, table };
+    },
+    renderer(token) {
+      const inline = (cell) => this.parser.parseInline(cell.tokens);
+      const first = token.table.firstHeader.map((cell) => cell.kind === "group"
+        ? `<th class="group-heading${cell.underline ? " has-underline" : ""}" colspan="${cell.span}">${inline(cell)}</th>`
+        : `<th rowspan="2">${inline(cell)}</th>`).join("");
+      const second = token.table.secondHeader.map((cell) => `<th>${inline(cell)}</th>`).join("");
+      const body = token.table.body.map((row, index) => `<tr${row.topRule ? ' class="has-top-border"' : ""} data-table-row="${index}">${row.cells.map((cell) => `<td>${inline(cell)}</td>`).join("")}</tr>`).join("");
+      return `<div class="grouped-table"><table class="academic-table ${token.table.tableClass}"><thead><tr>${first}</tr><tr>${second}</tr></thead><tbody${token.table.bottomRule ? ' class="has-bottom-rule"' : ""}>${body}</tbody></table></div>`;
+    },
+  };
+}
+
+function tocExtension() {
+  return {
+    name: "slideToc",
+    level: "block",
+    start(src) { return src.search(/<!--\s*toc\s*-->/i); },
+    tokenizer(src) {
+      const match = /^<!--\s*toc\s*-->(?:\n|$)/i.exec(src);
+      if (match) return { type: "slideToc", raw: match[0] };
+    },
+    renderer() {
+      const entries = activeTocEntries.map((entry) => `<button type="button" class="toc-entry${entry.level === 1 ? " is-section" : ""}" data-toc-source-start="${entry.sourceStart}"><span>${entry.html}</span></button>`).join("");
+      return `<nav class="slide-toc" aria-label="Table of contents">${entries}</nav>`;
+    },
+  };
+}
+
+function captionExtension() {
+  return {
+    name: "captionBlock",
+    level: "block",
+    start(src) { return src.search(/\{:\s*\.caption\s*\}/); },
+    tokenizer(src) {
+      const match = /^\{:\s*\.caption\s*\}\s*\n([^\n]+(?:\n(?!\s*\n|[#>|`~{]).+)*)?(?:\n|$)/.exec(src);
+      if (!match?.[1]) return undefined;
+      return { type: "captionBlock", raw: match[0], tokens: this.lexer.inlineTokens(match[1].trim()) };
+    },
+    renderer(token) { return `<p class="caption">${this.parser.parseInline(token.tokens)}</p>`; },
+  };
+}
+
+function highlightedCode(token) {
+  const requested = String(token.lang || "").trim().split(/\s+/, 1)[0].toLowerCase();
+  const language = CODE_LANGUAGE_ALIASES[requested] || requested;
+  let value;
+  let className = "hljs";
+  if (language && hljs.getLanguage(language)) {
+    value = hljs.highlight(token.text, { language, ignoreIllegals: true }).value;
+    className += ` language-${language}`;
+  } else {
+    value = escapeHtml(token.text);
+  }
+  const label = requested ? `<span class="code-language" aria-hidden="true">${escapeHtml(requested)}</span>` : "";
+  return `<pre class="code-block">${label}<code class="${className}">${value}</code></pre>\n`;
+}
+
 function escapeHtml(text) {
   const el = document.createElement("span");
   el.textContent = text;
@@ -47,7 +224,8 @@ function escapeHtml(text) {
 marked.use({
   gfm: true,
   breaks: false,
-  extensions: mathExtension(),
+  extensions: [...mathExtension(), groupedTableExtension(), tocExtension(), captionExtension()],
+  renderer: { code: highlightedCode },
 });
 
 export function extractFrontMatter(markdown) {
@@ -188,11 +366,17 @@ export function splitSlides(markdown) {
   return splitSlideSections(markdown).map(({ markdown: slideMarkdown }) => preprocessJekyll(slideMarkdown));
 }
 
-function safeHtml(markdown) {
-  return DOMPurify.sanitize(marked.parse(markdown), {
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "style", "video", "audio"],
-    FORBID_ATTR: ["srcdoc", "formaction"],
-  });
+function safeHtml(markdown, tocEntries = []) {
+  const previous = activeTocEntries;
+  activeTocEntries = tocEntries;
+  try {
+    return DOMPurify.sanitize(marked.parse(markdown), {
+      FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "style", "video", "audio"],
+      FORBID_ATTR: ["srcdoc", "formaction"],
+    });
+  } finally {
+    activeTocEntries = previous;
+  }
 }
 
 function tokenElementSelector(token) {
@@ -202,6 +386,9 @@ function tokenElementSelector(token) {
   if (token.type === "blockquote") return "blockquote";
   if (token.type === "code") return "pre";
   if (token.type === "table") return "table";
+  if (token.type === "groupedTable") return ".grouped-table";
+  if (token.type === "slideToc") return ".slide-toc";
+  if (token.type === "captionBlock") return "p.caption";
   if (token.type === "hr") return "hr";
   if (token.type === "blockMath") return ".math-display";
   return null;
@@ -358,12 +545,19 @@ function markdownModelCache(source) {
 
 export function processMarkdown(markdown, source) {
   const cache = markdownModelCache(source);
-  const slides = splitSlideSections(markdown).map((section, index) => {
+  const sections = splitSlideSections(markdown);
+  const tocEntries = sections.flatMap((section) => {
+    const heading = /^(#{1,2})\s+(.+?)\s*#*\s*(?:\n|$)/.exec(section.markdown);
+    if (!heading) return [];
+    const html = DOMPurify.sanitize(marked.parseInline(heading[2]), { FORBID_TAGS: ["img"] });
+    return [{ level: heading[1].length, html, sourceStart: section.sourceStart }];
+  });
+  const slides = sections.map((section, index) => {
     const { text: renderedMarkdown, sourceOffsets } = preprocessJekyllWithMap(section.markdown);
     const key = `${index}\u0000${section.sourceStart}\u0000${section.markdown}`;
     if (cache?.has(key)) return cache.get(key);
     const model = slideModelFromHtml(
-      safeHtml(renderedMarkdown),
+      safeHtml(renderedMarkdown, tocEntries),
       section.markdown,
       sourceOffsets,
       section.sourceStart,
