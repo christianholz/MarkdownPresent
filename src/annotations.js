@@ -317,11 +317,15 @@ export function hasEditableListContent(markdown) {
 
 function editedElementMarkdown(element, originalMarkdown) {
   const trailing = trailingWhitespace(originalMarkdown);
+  const edited = inlineMarkdown(element).trim();
+  const requestedHeading = /^(#{1,6})\s+(.+)$/.exec(edited);
+  const requestedLevel = requestedHeading ? Math.max(3, requestedHeading[1].length) : null;
+  const content = requestedHeading?.[2] || edited;
   if (element.matches("h1, h2, h3, h4, h5, h6")) {
-    const level = Number(element.tagName.slice(1));
-    return `${"#".repeat(level)} ${inlineMarkdown(element).trim()}${trailing}`;
+    const level = requestedLevel || Number(element.tagName.slice(1));
+    return `${"#".repeat(level)} ${content}${trailing}`;
   }
-  if (element.matches("p")) return `${inlineMarkdown(element).trim()}${trailing}`;
+  if (element.matches("p")) return requestedLevel ? `${"#".repeat(requestedLevel)} ${content}${trailing}` : `${edited}${trailing}`;
   if (element.matches("li")) {
     const marker = /^(\s*(?:[-+*]|\d+[.)])\s+)/.exec(originalMarkdown)?.[1];
     if (!marker) throw new Error("The list marker could not be located in the Markdown source.");
@@ -362,6 +366,22 @@ function editedListItemsMarkdown(element, createdItems, originalMarkdown) {
   const offset = keepFirst ? 1 : 0;
   const addedItems = additions.map((content, index) => `${listItemMarker(originalMarkdown, index + offset)}${content}`);
   return `${keepFirst ? `${body}\n` : ""}${addedItems.join("\n")}${trailing}`;
+}
+
+function listMarkerAt(markdown, offset) {
+  const lineStart = markdown.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+  const match = /^(\s*)(?:[-+*]|\d+[.)])(\s+)/.exec(markdown.slice(lineStart));
+  if (!match) return null;
+  return { indent: match[1].length, contentIndent: match[0].length };
+}
+
+function shiftedListMarkdown(markdown, fromIndent, toIndent) {
+  const delta = toIndent - fromIndent;
+  return markdown.split("\n").map((line) => {
+    if (!line.trim()) return line;
+    if (delta > 0) return `${" ".repeat(delta)}${line}`;
+    return line.slice(Math.min(line.length - line.trimStart().length, -delta));
+  }).join("\n");
 }
 
 function insertLineBreak(element) {
@@ -618,6 +638,13 @@ export class AnnotationManager {
       this.cancelInlineEditing();
       return;
     }
+    if (event.key === "Tab" && event.currentTarget.matches("li")) {
+      event.preventDefault();
+      event.stopPropagation();
+      const targetIndent = this.inlineListIndentTarget(event.shiftKey ? -1 : 1);
+      if (targetIndent !== null) this.commitInlineEditing({ indentTarget: targetIndent });
+      return;
+    }
     if (event.key !== "Enter") return;
     event.preventDefault();
     event.stopPropagation();
@@ -628,6 +655,26 @@ export class AnnotationManager {
     } else {
       insertLineBreak(event.currentTarget);
     }
+  }
+
+  inlineListIndentTarget(direction) {
+    const edit = this.inlineEdit;
+    if (!edit?.element.matches("li")) return null;
+    const current = listMarkerAt(this.presentation.slides[edit.slideIndex]?.model.markdown || "", edit.localStart);
+    if (!current) return null;
+    if (direction > 0) {
+      const previous = edit.element.previousElementSibling;
+      const previousStart = Number(previous?.dataset.sourceStart);
+      if (!previous?.matches("li") || !Number.isInteger(previousStart)) return null;
+      const marker = listMarkerAt(this.presentation.slides[edit.slideIndex].model.markdown, previousStart);
+      return marker ? marker.contentIndent : null;
+    }
+    if (current.indent <= 0) return null;
+    const markdown = this.presentation.slides[edit.slideIndex]?.model.markdown || "";
+    const smaller = [...markdown.matchAll(/^(\s*)(?:[-+*]|\d+[.)])\s+/gm)]
+      .map((match) => match[1].length)
+      .filter((indent) => indent < current.indent);
+    return smaller.length ? Math.max(...smaller) : 0;
   }
 
   onInlineEditBlur() {
@@ -700,11 +747,11 @@ export class AnnotationManager {
     this.rebuildCommentMarkers();
   }
 
-  async commitInlineEditing() {
+  async commitInlineEditing({ indentTarget = null } = {}) {
     const edit = this.inlineEdit;
     if (!edit || edit.committing) return;
     this.unlockInlineNestedLists();
-    if (edit.element.innerHTML === edit.originalHtml && !edit.createdItems.length) {
+    if (edit.element.innerHTML === edit.originalHtml && !edit.createdItems.length && indentTarget === null) {
       this.finishInlineEditing();
       this.inlineEdit = null;
       this.pendingAnchor = null;
@@ -712,9 +759,13 @@ export class AnnotationManager {
     }
     edit.committing = true;
     try {
-      const replacement = edit.element.matches("li")
+      let replacement = edit.element.matches("li")
         ? editedListItemsMarkdown(edit.element, edit.createdItems, edit.originalMarkdown)
         : editedElementMarkdown(edit.element, edit.originalMarkdown);
+      if (indentTarget !== null && replacement) {
+        const currentIndent = listMarkerAt(edit.originalMarkdown, 0)?.indent ?? 0;
+        replacement = shiftedListMarkdown(replacement, currentIndent, indentTarget);
+      }
       const absoluteStart = edit.slideStart + edit.localStart;
       const absoluteEnd = edit.slideStart + edit.localEnd;
       const markdown = replaceMarkdownRange(this.sourceMarkdown, absoluteStart, absoluteEnd, replacement);
@@ -724,6 +775,17 @@ export class AnnotationManager {
         : this.editCount + (markdown === this.sourceMarkdown ? 0 : 1);
       this.finishInlineEditing();
       await this.onMarkdownChange(markdown, {
+        historyLabel: indentTarget !== null
+          ? (indentTarget > (listMarkerAt(edit.originalMarkdown, 0)?.indent ?? 0) ? "Indent list item" : "Outdent list item")
+          : edit.createdItems.length
+            ? "Add list item"
+            : (!replacement && edit.element.matches("li"))
+              ? "Delete list item"
+              : edit.element.matches("h1, h2, h3, h4, h5, h6")
+                ? "Edit heading"
+                : edit.element.matches("li")
+                  ? "Edit list item"
+                  : /^#{3,6}\s+/.test(replacement) ? "Convert paragraph to heading" : "Edit paragraph",
         slideIndex: edit.slideIndex,
         sourceStart: absoluteStart,
         annotationState: {
@@ -813,7 +875,7 @@ export class AnnotationManager {
     comment.marker = marker;
     this.comments.push(comment);
     this.revision += 1;
-    this.syncDownloadButton();
+    this.syncDownloadButton({ historyLabel: "Add comment" });
     this.presentation.fitCurrent();
     this.pendingAnchor = null;
   }
@@ -1099,16 +1161,16 @@ export class AnnotationManager {
   closeEditor() { this.deck.querySelector(".comment-editor")?.remove(); this.pendingAnchor = null; }
   closeSaveMenu() { this.deck.querySelector(".comment-save-menu")?.remove(); }
   dismissMenus() { this.removeContextMenu(); this.closeEditor(); this.closeSaveMenu(); }
-  syncDownloadButton() {
+  syncDownloadButton(details = {}) {
     this.downloadButton.hidden = !this.dirty && this.comments.length === 0;
     const label = this.sourceChanged ? "Download changes" : "Download comments";
     this.downloadButton.setAttribute("aria-label", label);
     this.downloadButton.title = label;
     this.syncUnsavedIndicator();
-    this.notifyStateChange();
+    this.notifyStateChange(details);
   }
 
-  notifyStateChange() {
+  notifyStateChange(details = {}) {
     if (!this.onStateChange) return;
     const state = {
       markdown: this.sourceMarkdown,
@@ -1121,7 +1183,7 @@ export class AnnotationManager {
     };
     this.stateChangePromise = this.stateChangePromise
       .catch(() => {})
-      .then(() => this.onStateChange(state))
+      .then(() => this.onStateChange(state, details))
       .catch(() => {});
   }
 

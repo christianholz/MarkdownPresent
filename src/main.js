@@ -8,6 +8,7 @@ import { CONFIG } from "./config.js";
 import { AnnotationManager } from "./annotations.js";
 import { persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "./example-storage.js";
 import { DocumentSession } from "./document-session.js";
+import { HistoryController } from "./history.js";
 
 const SAMPLE = `# Research Planning Session
 
@@ -167,8 +168,11 @@ document.querySelector("#app").innerHTML = `
     <main class="stage" id="stage"></main>
     <nav class="deck-controls" aria-label="Slide controls">
       <button id="previous" aria-label="Previous slide">←</button>
+      <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
+      <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
+      <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
@@ -176,6 +180,10 @@ document.querySelector("#app").innerHTML = `
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
       <nav class="slide-outline-list" id="outline-list" aria-label="Jump to slide"></nav>
+    </aside>
+    <aside class="history-panel" id="history-panel" aria-label="Edit history" hidden>
+      <header class="slide-outline-header"><strong>Edit history</strong><button id="history-close" aria-label="Close edit history">×</button></header>
+      <div class="history-list" id="history-list"></div>
     </aside>
     <div class="progress-track"><div id="progress"></div></div>
   </section>
@@ -189,6 +197,7 @@ const $ = (selector) => document.querySelector(selector);
 let presentation;
 let outline;
 let annotations;
+let historyController;
 let selectedFiles = [];
 let markdownFiles = [];
 
@@ -298,7 +307,7 @@ async function loadDeck(repository, source, label, state = {}) {
       annotationState: session.annotationState,
       discardLabel: "Return without saving",
       onMarkdownChange: (nextMarkdown, details = {}) => {
-        session.applyMarkdown(nextMarkdown, details.annotationState);
+        session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel);
         state.onSourceMarkdownChange?.(nextMarkdown);
         return loadDeck(repository, source, label, {
           onSourceMarkdownChange: state.onSourceMarkdownChange,
@@ -308,6 +317,7 @@ async function loadDeck(repository, source, label, state = {}) {
           assetManager: manager,
         });
       },
+      onStateChange: (nextState, details = {}) => session.captureAnnotationState(nextState, details.historyLabel),
     });
     outline ||= new SlideOutline({
       panel: $("#slide-outline"),
@@ -318,6 +328,24 @@ async function loadDeck(repository, source, label, state = {}) {
       onSelect: (index) => presentation?.show(index),
     });
     outline.setSlides(documentModel.slides);
+    historyController ||= new HistoryController({
+      panel: $("#history-panel"),
+      list: $("#history-list"),
+      toggle: $("#history-toggle"),
+      close: $("#history-close"),
+      undo: $("#undo"),
+      redo: $("#redo"),
+    });
+    historyController.setSession(session, async (restoredSession) => {
+      state.onSourceMarkdownChange?.(restoredSession.markdown);
+      await loadDeck(repository, source, label, {
+        onSourceMarkdownChange: state.onSourceMarkdownChange,
+        session: restoredSession,
+        index: presentation.index,
+        keepDeckVisible: true,
+        assetManager: manager,
+      });
+    });
     $("#deck-name").textContent = label || "Presentation";
     setScreen("deck");
     await presentation.show(requestedIndex);

@@ -8,6 +8,7 @@ import { SlideOutline } from "../src/slide-outline.js";
 import { AnnotationManager } from "../src/annotations.js";
 import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
 import { DocumentSession } from "../src/document-session.js";
+import { HistoryController } from "../src/history.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -22,8 +23,11 @@ document.querySelector("#app").innerHTML = `
     <main class="stage" id="stage"></main>
     <nav class="deck-controls" aria-label="Slide controls">
       <button id="previous" aria-label="Previous slide">←</button>
+      <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
+      <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
+      <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
@@ -31,6 +35,10 @@ document.querySelector("#app").innerHTML = `
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
       <nav class="slide-outline-list" id="outline-list" aria-label="Jump to slide"></nav>
+    </aside>
+    <aside class="history-panel" id="history-panel" aria-label="Edit history" hidden>
+      <header class="slide-outline-header"><strong>Edit history</strong><button id="history-close" aria-label="Close edit history">×</button></header>
+      <div class="history-list" id="history-list"></div>
     </aside>
     <div class="progress-track"><div id="progress"></div></div>
   </section>
@@ -43,6 +51,7 @@ const $ = (selector) => document.querySelector(selector);
 let presentation;
 let outline;
 let annotations;
+let historyController;
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
@@ -155,20 +164,29 @@ async function boot() {
         title,
         annotationState: session.annotationState,
         discardLabel: "Leave tab without saving",
-        onStateChange: originalMarkdown ? (state) => {
-          session.captureAnnotationState(state);
+        onStateChange: originalMarkdown ? (state, details = {}) => {
+          session.captureAnnotationState(state, details.historyLabel);
           return persistDraft(state);
         } : undefined,
         onDiscard: originalMarkdown ? discardDraft : undefined,
         onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
         onMarkdownChange: originalMarkdown
           ? (nextMarkdown, details = {}) => {
-            session.applyMarkdown(nextMarkdown, details.annotationState);
+            session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel);
             return renderDeck(presentation.index, true);
           }
           : undefined,
       });
       outline.setSlides(documentModel.slides);
+      historyController ||= new HistoryController({
+        panel: $("#history-panel"),
+        list: $("#history-list"),
+        toggle: $("#history-toggle"),
+        close: $("#history-close"),
+        undo: $("#undo"),
+        redo: $("#redo"),
+      });
+      historyController.setSession(session, () => renderDeck(presentation.index, true));
       $("#deck-name").textContent = payload.source.path.split("/").pop() || "Presentation";
       setScreen("deck");
       await presentation.show(requestedIndex);
