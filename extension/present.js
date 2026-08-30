@@ -9,6 +9,7 @@ import { AnnotationManager } from "../src/annotations.js";
 import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
 import { DocumentSession } from "../src/document-session.js";
 import { HistoryController } from "../src/history.js";
+import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresentationPosition } from "../src/positions.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -34,8 +35,14 @@ document.querySelector("#app").innerHTML = `
     <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
+      <input class="slide-outline-search" id="outline-search" type="search" placeholder="Search slides…" aria-label="Search slides" autocomplete="off" />
       <nav class="slide-outline-list" id="outline-list" aria-label="Jump to slide"></nav>
     </aside>
+    <section class="resume-prompt" id="resume-prompt" aria-live="polite" hidden>
+      <span id="resume-message"></span>
+      <button id="resume-slide" type="button">Resume</button>
+      <button id="resume-start" type="button">Start at beginning</button>
+    </section>
     <aside class="history-panel" id="history-panel" aria-label="Edit history" hidden>
       <header class="slide-outline-header"><strong>Edit history</strong><button id="history-close" aria-label="Close edit history">×</button></header>
       <div class="history-list" id="history-list"></div>
@@ -52,6 +59,8 @@ let presentation;
 let outline;
 let annotations;
 let historyController;
+let positionKey;
+let suppressPositionPersistence = false;
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
@@ -68,6 +77,19 @@ function updateSlideHash(index) {
   const hash = hashParameters();
   hash.set("slide", String(index + 1));
   history.replaceState(null, "", `#${hash}`);
+}
+
+async function copyText(text) {
+  if (!text) return;
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function githubUploadUrl(source) {
@@ -92,6 +114,8 @@ async function boot() {
     if (!payload) throw new Error("The GitHub source expired. Return to the Markdown file and click Present again.");
 
     const originalMarkdown = payload.markdown || "";
+    positionKey = positionStorageKey(payload.source);
+    const storedPosition = (await chrome.storage.local.get(positionKey))[positionKey] || null;
     const draftKey = extensionDraftKey(payload.source);
     const storedDraft = originalMarkdown ? (await chrome.storage.local.get(draftKey))[draftKey] : null;
     const restoredDraft = restorableExtensionDraft(storedDraft, originalMarkdown);
@@ -122,6 +146,10 @@ async function boot() {
       onIndexChange: (index) => {
         updateSlideHash(index);
         outline?.setActive(index);
+        if (!suppressPositionPersistence) {
+          void chrome.storage.local.set({ [positionKey]: presentationPosition(presentation, index) });
+          $("#resume-prompt").hidden = true;
+        }
       },
     });
     outline = new SlideOutline({
@@ -129,8 +157,10 @@ async function boot() {
       list: $("#outline-list"),
       toggle: $("#outline-toggle"),
       close: $("#outline-close"),
+      search: $("#outline-search"),
       dismissSurface: $("#stage"),
       onSelect: (index) => presentation?.show(index),
+      onCopyLink: (index) => copyText(githubSlideUrl(payload.source, index)),
     });
 
     const session = new DocumentSession({
@@ -193,7 +223,18 @@ async function boot() {
       await Promise.allSettled(presentation.slides.map((_, index) => presentation.loadAssets(index)));
     };
 
-    await renderDeck(slideFromHash(), false);
+    const linkedIndex = Number.isInteger(payload.initialSlide) ? payload.initialSlide : null;
+    suppressPositionPersistence = Boolean(storedPosition && linkedIndex === null);
+    await renderDeck(linkedIndex ?? 0, false);
+    suppressPositionPersistence = false;
+    if (storedPosition && linkedIndex === null) {
+      const resumeIndex = resolvePresentationPosition(presentation, storedPosition);
+      if (resumeIndex > 0) {
+        $("#resume-message").textContent = `Continue from slide ${resumeIndex + 1}?`;
+        $("#resume-prompt").dataset.index = String(resumeIndex);
+        $("#resume-prompt").hidden = false;
+      }
+    }
     await chrome.storage.local.remove(storageKey);
   } catch (error) { showError(error); }
 }
@@ -206,6 +247,14 @@ $("#close").addEventListener("click", (event) => {
 });
 $("#close-error").addEventListener("click", () => window.close());
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#resume-slide").addEventListener("click", () => {
+  $("#resume-prompt").hidden = true;
+  void presentation?.show(Number.parseInt($("#resume-prompt").dataset.index || "0", 10));
+});
+$("#resume-start").addEventListener("click", () => {
+  $("#resume-prompt").hidden = true;
+  void presentation?.show(0);
+});
 
 document.addEventListener("keydown", (event) => {
   if ($(".deck-screen").hidden || event.target.matches("input, textarea, button, [contenteditable='true']")) return;

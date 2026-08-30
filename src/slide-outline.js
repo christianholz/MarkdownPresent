@@ -3,13 +3,19 @@ export function slideOutlineLabel(slide, index) {
 }
 
 export class SlideOutline {
-  constructor({ panel, list, toggle, close, dismissSurface, onSelect }) {
+  constructor({ panel, list, toggle, close, search, dismissSurface, onSelect, onCopyLink }) {
     this.panel = panel;
     this.list = list;
     this.toggle = toggle;
     this.closeButton = close;
+    this.search = search;
     this.onSelect = onSelect;
+    this.onCopyLink = onCopyLink;
     this.buttons = [];
+    this.rows = [];
+    this.empty = document.createElement("p");
+    this.empty.className = "slide-outline-empty";
+    this.empty.textContent = "No slides match that search.";
     this.index = 0;
     this.highlightedIndex = 0;
     this.openingIndex = 0;
@@ -22,6 +28,7 @@ export class SlideOutline {
 
     toggle.addEventListener("click", () => this.togglePanel());
     close.addEventListener("click", () => this.close());
+    search?.addEventListener("input", () => this.applyFilter());
     dismissSurface.addEventListener("pointerdown", (event) => {
       if (this.panel.hidden || event.button !== 0) return;
       event.preventDefault();
@@ -49,9 +56,13 @@ export class SlideOutline {
     document.addEventListener("keydown", (event) => this.handleKeydown(event));
   }
 
-  setSlides(slides) {
+  setSlides(slides, { copyLinks = Boolean(this.onCopyLink) } = {}) {
     this.list.replaceChildren();
+    this.rows = [];
     this.buttons = slides.map((slide, index) => {
+      const row = document.createElement("div");
+      row.className = "slide-outline-row";
+      row.dataset.searchText = `${slideOutlineLabel(slide, index)} ${slide.content?.textContent || ""}`.toLocaleLowerCase();
       const button = document.createElement("button");
       button.type = "button";
       button.className = "slide-outline-button";
@@ -82,10 +93,43 @@ export class SlideOutline {
         }
         this.commit(index);
       });
-      this.list.append(button);
+      row.append(button);
+      if (copyLinks && this.onCopyLink) {
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "slide-outline-copy";
+        copy.setAttribute("aria-label", `Copy link to slide ${index + 1}`);
+        copy.title = "Copy link to this slide";
+        copy.textContent = "↗";
+        copy.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          await this.onCopyLink(index, slide);
+          copy.classList.add("is-copied");
+          copy.textContent = "✓";
+          window.setTimeout(() => { copy.classList.remove("is-copied"); copy.textContent = "↗"; }, 1200);
+        });
+        row.append(copy);
+      }
+      this.list.append(row);
+      this.rows.push(row);
       return button;
     });
+    this.list.append(this.empty);
+    if (this.search) this.search.value = "";
     this.setActive(0);
+    this.applyFilter();
+  }
+
+  visibleIndexes() {
+    return this.rows.map((row, index) => row.hidden ? -1 : index).filter((index) => index >= 0);
+  }
+
+  applyFilter() {
+    const query = this.search?.value.trim().toLocaleLowerCase() || "";
+    this.rows.forEach((row) => { row.hidden = Boolean(query && !row.dataset.searchText.includes(query)); });
+    const visible = this.visibleIndexes();
+    this.empty.hidden = visible.length > 0;
+    if (visible.length && !visible.includes(this.highlightedIndex)) this.setHighlight(visible[0]);
   }
 
   setActive(index) {
@@ -122,8 +166,12 @@ export class SlideOutline {
   }
 
   setHighlight(index, focus = false, scroll = true) {
-    if (!this.buttons.length) return;
-    this.highlightedIndex = (index + this.buttons.length) % this.buttons.length;
+    const visible = this.visibleIndexes();
+    if (!visible.length) return;
+    const requested = (index + this.buttons.length) % this.buttons.length;
+    this.highlightedIndex = visible.includes(requested)
+      ? requested
+      : visible.find((candidate) => candidate >= requested) ?? visible[0];
     this.buttons.forEach((button, buttonIndex) => button.classList.toggle("is-highlighted", buttonIndex === this.highlightedIndex));
     const highlighted = this.buttons[this.highlightedIndex];
     if (scroll) highlighted.scrollIntoView({ block: "nearest" });
@@ -200,19 +248,47 @@ export class SlideOutline {
   }
 
   handleKeydown(event) {
+    const searching = event.target === this.search;
+    if (searching && !this.panel.hidden) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const visible = this.visibleIndexes();
+        if (!visible.length) return;
+        const position = visible.indexOf(this.highlightedIndex);
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        this.preview(visible[(position + delta + visible.length) % visible.length], true, true);
+      } else if (event.key === "Enter" && this.visibleIndexes().length) {
+        event.preventDefault();
+        this.commit();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        if (this.search.value) {
+          this.search.value = "";
+          this.applyFilter();
+        } else this.cancel();
+      }
+      return;
+    }
     if (event.target.matches?.("input, textarea, [contenteditable='true']")) return;
-    if (["g", "G", "=", "+"].includes(event.key)) {
+    if (["g", "G", "=", "+", "/"].includes(event.key)) {
       event.preventDefault();
       if (this.panel.hidden) this.open();
+      if (event.key === "/") this.search?.focus({ preventScroll: true });
       return;
     }
     if (this.panel.hidden) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      this.preview(this.highlightedIndex + 1, true, true);
+      const visible = this.visibleIndexes();
+      if (!visible.length) return;
+      const position = visible.indexOf(this.highlightedIndex);
+      this.preview(visible[(position + 1 + visible.length) % visible.length], true, true);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      this.preview(this.highlightedIndex - 1, true, true);
+      const visible = this.visibleIndexes();
+      if (!visible.length) return;
+      const position = visible.indexOf(this.highlightedIndex);
+      this.preview(visible[(position - 1 + visible.length) % visible.length], true, true);
     } else if (event.key === "Enter") {
       event.preventDefault();
       this.commit();

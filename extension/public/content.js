@@ -10,6 +10,11 @@
     return { owner, repo, ref, path };
   }
 
+  function linkedSlide() {
+    const match = location.hash.match(/(?:^#|[&#])mdpresent-slide=(\d+)/i);
+    return match ? Math.max(0, Number.parseInt(match[1], 10) - 1) : null;
+  }
+
   async function sourcePayload(rawButton, source) {
     const renderedArticle = document.querySelector("article.markdown-body")?.cloneNode(true);
     renderedArticle?.querySelectorAll("markdown-accessiblity-table").forEach((table) => table.remove());
@@ -19,10 +24,10 @@
       if (!response.ok) throw new Error(`Raw returned ${response.status}`);
       const markdown = await response.text();
       if (!markdown.trim()) throw new Error("Raw returned an empty file");
-      return { source, markdown, renderedHtml: "" };
+      return { source, markdown, renderedHtml: "", initialSlide: linkedSlide() };
     } catch (error) {
       if (!renderedHtml) throw new Error(`Could not read Raw Markdown and no rendered fallback was found: ${error.message}`);
-      return { source, markdown: "", renderedHtml };
+      return { source, markdown: "", renderedHtml, initialSlide: linkedSlide() };
     }
   }
 
@@ -116,6 +121,8 @@
     return wrapper;
   }
 
+  let automaticallyOpenedUrl = "";
+
   function inject() {
     const source = sourceFromLocation();
     if (!source) return;
@@ -124,7 +131,12 @@
     const group = rawButton.closest('[data-component="ButtonGroup"]') || rawButton.parentElement;
     const actions = rawButton.closest(".react-blob-header-edit-and-raw-actions") || group?.parentElement;
     if (!group || !actions || actions.querySelector(`[${BUTTON_ATTRIBUTE}]`)) return;
-    actions.insertBefore(createButton(rawButton, source), group);
+    const item = createButton(rawButton, source);
+    actions.insertBefore(item, group);
+    if (linkedSlide() !== null && automaticallyOpenedUrl !== location.href) {
+      automaticallyOpenedUrl = location.href;
+      item.querySelector(".mdpresent-button")?.click();
+    }
   }
 
   let queued = false;

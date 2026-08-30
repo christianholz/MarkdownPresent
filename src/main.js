@@ -9,6 +9,14 @@ import { AnnotationManager } from "./annotations.js";
 import { persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "./example-storage.js";
 import { DocumentSession } from "./document-session.js";
 import { HistoryController } from "./history.js";
+import {
+  pastedSlideUrl,
+  positionStorageKey,
+  presentationPosition,
+  readLocalPosition,
+  resolvePresentationPosition,
+  writeLocalPosition,
+} from "./positions.js";
 
 const SAMPLE = `# Research Planning Session
 
@@ -179,12 +187,18 @@ document.querySelector("#app").innerHTML = `
     <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
+      <input class="slide-outline-search" id="outline-search" type="search" placeholder="Search slides…" aria-label="Search slides" autocomplete="off" />
       <nav class="slide-outline-list" id="outline-list" aria-label="Jump to slide"></nav>
     </aside>
     <aside class="history-panel" id="history-panel" aria-label="Edit history" hidden>
       <header class="slide-outline-header"><strong>Edit history</strong><button id="history-close" aria-label="Close edit history">×</button></header>
       <div class="history-list" id="history-list"></div>
     </aside>
+    <section class="resume-prompt" id="resume-prompt" aria-live="polite" hidden>
+      <span id="resume-message"></span>
+      <button id="resume-slide" type="button">Resume</button>
+      <button id="resume-start" type="button">Start at beginning</button>
+    </section>
     <div class="progress-track"><div id="progress"></div></div>
   </section>
 
@@ -198,6 +212,9 @@ let presentation;
 let outline;
 let annotations;
 let historyController;
+let activePositionKey = null;
+let activeCopySlideLink = null;
+let suppressPositionPersistence = false;
 let selectedFiles = [];
 let markdownFiles = [];
 
@@ -217,6 +234,7 @@ syncExampleResetButton();
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
+  if (name !== "deck") $("#resume-prompt").hidden = true;
 }
 
 function showError(error) {
@@ -230,6 +248,38 @@ function updateSlideHash(index) {
   const hash = readHash();
   hash.set("slide", String(index + 1));
   history.replaceState(null, "", `#${hash}`);
+}
+
+async function copyText(text) {
+  if (!text) throw new Error("This source cannot be linked until it is available at a stable URL.");
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function offerResume(index) {
+  if (index <= 0) return;
+  $("#resume-message").textContent = `Continue from slide ${index + 1}?`;
+  $("#resume-prompt").dataset.index = String(index);
+  $("#resume-prompt").hidden = false;
+}
+
+function deckState(state, session, manager) {
+  return {
+    onSourceMarkdownChange: state.onSourceMarkdownChange,
+    session,
+    index: presentation.index,
+    keepDeckVisible: true,
+    assetManager: manager,
+    positionKey: state.positionKey,
+    copySlideLink: state.copySlideLink,
+  };
 }
 
 function imageReferences(documentModel) {
@@ -274,7 +324,9 @@ async function loadDeck(repository, source, label, state = {}) {
     });
     const markdown = session.markdown;
     const originalMarkdown = session.originalMarkdown;
-    const requestedIndex = state.index ?? slideFromHash();
+    const explicitIndex = Number.isInteger(state.index) ? state.index : (state.fromLink ? slideFromHash() : null);
+    const savedPosition = explicitIndex === null && state.positionKey ? readLocalPosition(state.positionKey) : null;
+    const requestedIndex = explicitIndex ?? 0;
     const documentModel = processMarkdown(markdown, source);
     if (!documentModel.slides.length) throw new Error("The Markdown file does not contain any slide content.");
     const manager = state.assetManager
@@ -287,6 +339,10 @@ async function loadDeck(repository, source, label, state = {}) {
       onIndexChange: (index) => {
         updateSlideHash(index);
         outline?.setActive(index);
+        if (!suppressPositionPersistence && activePositionKey) {
+          writeLocalPosition(activePositionKey, presentationPosition(presentation, index));
+        }
+        if (!suppressPositionPersistence && !$("#resume-prompt").hidden) $("#resume-prompt").hidden = true;
       },
     });
     await presentation.create(documentModel, manager);
@@ -309,13 +365,7 @@ async function loadDeck(repository, source, label, state = {}) {
       onMarkdownChange: (nextMarkdown, details = {}) => {
         session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel);
         state.onSourceMarkdownChange?.(nextMarkdown);
-        return loadDeck(repository, source, label, {
-          onSourceMarkdownChange: state.onSourceMarkdownChange,
-          session,
-          index: presentation.index,
-          keepDeckVisible: true,
-          assetManager: manager,
-        });
+        return loadDeck(repository, source, label, deckState(state, session, manager));
       },
       onStateChange: (nextState, details = {}) => session.captureAnnotationState(nextState, details.historyLabel),
     });
@@ -324,10 +374,12 @@ async function loadDeck(repository, source, label, state = {}) {
       list: $("#outline-list"),
       toggle: $("#outline-toggle"),
       close: $("#outline-close"),
+      search: $("#outline-search"),
       dismissSurface: $("#stage"),
       onSelect: (index) => presentation?.show(index),
+      onCopyLink: (index) => copyText(activeCopySlideLink?.(index)),
     });
-    outline.setSlides(documentModel.slides);
+    outline.setSlides(documentModel.slides, { copyLinks: Boolean(state.copySlideLink) });
     historyController ||= new HistoryController({
       panel: $("#history-panel"),
       list: $("#history-list"),
@@ -338,17 +390,16 @@ async function loadDeck(repository, source, label, state = {}) {
     });
     historyController.setSession(session, async (restoredSession) => {
       state.onSourceMarkdownChange?.(restoredSession.markdown);
-      await loadDeck(repository, source, label, {
-        onSourceMarkdownChange: state.onSourceMarkdownChange,
-        session: restoredSession,
-        index: presentation.index,
-        keepDeckVisible: true,
-        assetManager: manager,
-      });
+      await loadDeck(repository, source, label, deckState(state, restoredSession, manager));
     });
     $("#deck-name").textContent = label || "Presentation";
+    activePositionKey = state.positionKey || null;
+    activeCopySlideLink = state.copySlideLink || null;
     setScreen("deck");
+    suppressPositionPersistence = Boolean(savedPosition);
     await presentation.show(requestedIndex);
+    suppressPositionPersistence = false;
+    if (savedPosition) offerResume(resolvePresentationPosition(presentation, savedPosition));
   } catch (error) { showError(error); }
 }
 
@@ -452,7 +503,11 @@ async function openLocalMarkdown(file) {
       result.references.length ? "All referenced items are accessible." : "No referenced items need checking.",
       "success",
     );
-    await loadDeck(repository, source, file.name, { markdown, assetManager: manager });
+    await loadDeck(repository, source, file.name, {
+      markdown,
+      assetManager: manager,
+      positionKey: positionStorageKey(`local:${source.path}:${file.size}:${file.lastModified}`),
+    });
   } catch (error) {
     if (presentation?.assetManager !== manager) manager.dispose();
     setAssetStatus($("#file-status"), `The presentation could not be checked: ${error.message}`, "error");
@@ -517,7 +572,7 @@ function clearPasteValidation() {
   pasteValidation = null;
 }
 
-async function checkPastedMarkdown({ present = false } = {}) {
+async function checkPastedMarkdown({ present = false, fromLink = false } = {}) {
   const request = ++pasteCheckRequest;
   const markdown = $("#markdown-input").value;
   if (pasteValidation?.markdown === markdown) {
@@ -528,6 +583,9 @@ async function checkPastedMarkdown({ present = false } = {}) {
         markdown,
         assetManager: validation.manager,
         onSourceMarkdownChange: savePastedMarkdown,
+        positionKey: positionStorageKey("paste"),
+        copySlideLink: (index) => pastedSlideUrl(location.href, index),
+        fromLink,
       });
     }
     return true;
@@ -557,6 +615,9 @@ async function checkPastedMarkdown({ present = false } = {}) {
       markdown,
       assetManager: manager,
       onSourceMarkdownChange: savePastedMarkdown,
+      positionKey: positionStorageKey("paste"),
+      copySlideLink: (index) => pastedSlideUrl(location.href, index),
+      fromLink,
     });
     else pasteValidation = { markdown, repository, source, manager };
     return true;
@@ -616,6 +677,16 @@ $("#back-home").addEventListener("click", (event) => {
 });
 $("#error-home").addEventListener("click", () => setScreen("home"));
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#resume-slide").addEventListener("click", () => {
+  const index = Number.parseInt($("#resume-prompt").dataset.index || "0", 10);
+  $("#resume-prompt").hidden = true;
+  void presentation?.show(index);
+});
+$("#resume-start").addEventListener("click", () => {
+  $("#resume-prompt").hidden = true;
+  void presentation?.show(0);
+  if (activePositionKey) writeLocalPosition(activePositionKey, presentationPosition(presentation, 0));
+});
 
 async function toggleFullscreen() {
   if (document.fullscreenElement) await document.exitFullscreen();
@@ -634,3 +705,4 @@ document.addEventListener("keydown", (event) => {
 
 setScreen("home");
 schedulePasteCheck();
+if (readHash().get("deck") === "paste") void checkPastedMarkdown({ present: true, fromLink: true });
