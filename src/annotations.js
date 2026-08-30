@@ -445,7 +445,7 @@ function filenameParts(path) {
 }
 
 export class AnnotationManager {
-  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onDownloadWorkspace, onMarkdownChange, onStateChange, onDiscard, discardLabel = "Continue without saving", annotationState }) {
+  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onWriteBack, onDownloadWorkspace, onMarkdownChange, onStateChange, onDiscard, discardLabel = "Continue without saving", annotationState }) {
     this.stage = stage;
     this.deck = deck;
     this.downloadButton = downloadButton;
@@ -455,6 +455,7 @@ export class AnnotationManager {
     this.sourcePath = sourcePath || "presentation.md";
     this.title = title || "Presentation";
     this.onUpload = onUpload;
+    this.onWriteBack = onWriteBack;
     this.onDownloadWorkspace = onDownloadWorkspace;
     this.onMarkdownChange = onMarkdownChange;
     this.onStateChange = onStateChange;
@@ -1060,16 +1061,29 @@ export class AnnotationManager {
       this.comments.length ? "Download Markdown with comments and open GitHub upload" : "Download Markdown and open GitHub upload",
       () => this.downloadAndUpload(),
     ]);
+    if (this.onWriteBack && this.sourceChanged) actions.push(["Save Markdown changes to GitHub", () => this.writeBack()]);
     for (const [label, action] of actions) {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
       button.addEventListener("click", async (event) => {
         event.stopPropagation();
-        await action();
-        if (closing) await this.stateChangePromise;
-        if (closing && this.dirty) this.openSaveMenu(true);
-        else this.finishPendingClose();
+        try {
+          button.disabled = true;
+          await action();
+          if (closing) await this.stateChangePromise;
+          if (closing && this.dirty) this.openSaveMenu(true);
+          else this.finishPendingClose();
+        } catch (error) {
+          button.disabled = false;
+          let message = menu.querySelector(".save-menu-error");
+          if (!message) {
+            message = document.createElement("p");
+            message.className = "save-menu-error";
+            menu.append(message);
+          }
+          message.textContent = error?.message || String(error);
+        }
       });
       menu.append(button);
     }
@@ -1125,6 +1139,13 @@ export class AnnotationManager {
     if (this.comments.length) this.downloadMarkdownWithComments();
     else this.downloadMarkdown();
     this.onUpload?.();
+  }
+
+  async writeBack() {
+    await this.onWriteBack?.();
+    this.originalSourceMarkdown = this.sourceMarkdown;
+    this.editCount = 0;
+    this.syncDownloadButton();
   }
 
   requestClose(callback) {

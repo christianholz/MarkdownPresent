@@ -12,6 +12,7 @@ import { HistoryController } from "../src/history.js";
 import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresentationPosition } from "../src/positions.js";
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "../src/asset-workspace.js";
 import { exportPresentationPdf } from "../src/pdf-export.js";
+import { requestGitHubToken, writeDeckToGitHub } from "../src/github-writeback.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -121,6 +122,7 @@ async function boot() {
     if (!payload) throw new Error("The GitHub source expired. Return to the Markdown file and click Present again.");
 
     const originalMarkdown = payload.markdown || "";
+    let remoteMarkdown = originalMarkdown;
     positionKey = positionStorageKey(payload.source);
     const storedPosition = (await chrome.storage.local.get(positionKey))[positionKey] || null;
     const draftKey = extensionDraftKey(payload.source);
@@ -134,7 +136,7 @@ async function boot() {
         if (state.dirty) {
           preserveStaleDraft = false;
           const assets = await repository.serializedAssets();
-          await chrome.storage.local.set({ [draftKey]: extensionDraftRecord(originalMarkdown, state, Date.now(), assets) });
+          await chrome.storage.local.set({ [draftKey]: extensionDraftRecord(remoteMarkdown, state, Date.now(), assets) });
         } else if (!preserveStaleDraft) {
           await chrome.storage.local.remove(draftKey);
         }
@@ -213,6 +215,30 @@ async function boot() {
         } : undefined,
         onDiscard: originalMarkdown ? discardDraft : undefined,
         onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
+        onWriteBack: originalMarkdown ? async () => {
+          const tokenRecord = await chrome.storage.local.get("mdpresent:github-token");
+          const storedToken = tokenRecord["mdpresent:github-token"] || "";
+          const token = storedToken || await requestGitHubToken($(".deck-screen"));
+          if (!token) throw new Error("GitHub save was cancelled.");
+          await chrome.storage.local.set({ "mdpresent:github-token": token });
+          try {
+            await writeDeckToGitHub({
+              source: payload.source,
+              token,
+              baseMarkdown: remoteMarkdown,
+              markdown: session.markdown,
+              assets: await repository.serializedAssets(),
+            });
+          } catch (error) {
+            if (error.status === 401) {
+              await chrome.storage.local.remove("mdpresent:github-token");
+              throw new Error("The saved GitHub token is no longer valid. Try saving again to connect a new token.");
+            }
+            throw error;
+          }
+          remoteMarkdown = session.markdown;
+          await discardDraft();
+        } : undefined,
         onDownloadWorkspace: () => downloadDeckWorkspace({
           repository,
           source: payload.source,

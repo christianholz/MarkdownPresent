@@ -60,7 +60,12 @@ export class WorkingRepository {
     const extension = dot > 0 ? original.slice(dot) : "";
     let filename = original;
     let counter = 2;
-    while (this.assets.has(normalizePath(`${directory}assets/${filename}`))) {
+    const exists = async (path) => {
+      if (this.assets.has(path)) return true;
+      try { await this.base.readBlob(path); return true; }
+      catch { return false; }
+    };
+    while (await exists(normalizePath(`${directory}assets/${filename}`))) {
       filename = `${stem}-${counter}${extension}`;
       counter += 1;
     }

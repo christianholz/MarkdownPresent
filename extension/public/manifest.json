@@ -6,7 +6,8 @@
   "description": "Present Markdown files from eth-siplab-team repositories as slides.",
   "permissions": ["storage"],
   "host_permissions": [
-    "https://github.com/eth-siplab-team/*"
+    "https://github.com/eth-siplab-team/*",
+    "https://api.github.com/*"
   ],
   "background": {
     "service_worker": "background.js"
