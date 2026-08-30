@@ -9,6 +9,7 @@ import { AnnotationManager } from "./annotations.js";
 import { persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "./example-storage.js";
 import { DocumentSession } from "./document-session.js";
 import { HistoryController } from "./history.js";
+import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "./asset-workspace.js";
 import {
   pastedSlideUrl,
   positionStorageKey,
@@ -181,6 +182,8 @@ document.querySelector("#app").innerHTML = `
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
       <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
+      <button id="add-image" aria-label="Add an image to this slide" title="Add image">▧+</button>
+      <input id="image-input" type="file" accept="image/*" hidden />
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
@@ -215,6 +218,7 @@ let historyController;
 let activePositionKey = null;
 let activeCopySlideLink = null;
 let suppressPositionPersistence = false;
+let activeAssetHandler = null;
 let selectedFiles = [];
 let markdownFiles = [];
 
@@ -314,7 +318,10 @@ function setAssetStatus(element, message, state = "") {
 async function loadDeck(repository, source, label, state = {}) {
   if (!state.keepDeckVisible) setScreen("loading");
   try {
-    const initialMarkdown = state.markdown ?? await repository.readText();
+    const deckRepository = repository instanceof WorkingRepository
+      ? repository
+      : new WorkingRepository(repository, source, state.assets);
+    const initialMarkdown = state.markdown ?? await deckRepository.readText();
     const session = state.session || new DocumentSession({
       markdown: initialMarkdown,
       originalMarkdown: state.originalMarkdown ?? initialMarkdown,
@@ -329,9 +336,11 @@ async function loadDeck(repository, source, label, state = {}) {
     const requestedIndex = explicitIndex ?? 0;
     const documentModel = processMarkdown(markdown, source);
     if (!documentModel.slides.length) throw new Error("The Markdown file does not contain any slide content.");
-    const manager = state.assetManager
+    const manager = state.assetManager?.repository === deckRepository
+      ? state.assetManager
       || (state.keepDeckVisible ? presentation?.assetManager : null)
-      || new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
+      : new AssetManager(deckRepository, source, CONFIG.presentation.assetConcurrency);
+    if (state.assetManager && state.assetManager !== manager) state.assetManager.dispose();
     presentation ||= new Presentation({
       stage: $("#stage"),
       counter: $("#slide-number"),
@@ -365,9 +374,15 @@ async function loadDeck(repository, source, label, state = {}) {
       onMarkdownChange: (nextMarkdown, details = {}) => {
         session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel);
         state.onSourceMarkdownChange?.(nextMarkdown);
-        return loadDeck(repository, source, label, deckState(state, session, manager));
+        return loadDeck(deckRepository, source, label, deckState(state, session, manager));
       },
       onStateChange: (nextState, details = {}) => session.captureAnnotationState(nextState, details.historyLabel),
+      onDownloadWorkspace: () => downloadDeckWorkspace({
+        repository: deckRepository,
+        source,
+        markdown: session.markdown,
+        references: imageReferences(processMarkdown(session.markdown, source)),
+      }),
     });
     outline ||= new SlideOutline({
       panel: $("#slide-outline"),
@@ -390,11 +405,24 @@ async function loadDeck(repository, source, label, state = {}) {
     });
     historyController.setSession(session, async (restoredSession) => {
       state.onSourceMarkdownChange?.(restoredSession.markdown);
-      await loadDeck(repository, source, label, deckState(state, restoredSession, manager));
+      await loadDeck(deckRepository, source, label, deckState(state, restoredSession, manager));
     });
     $("#deck-name").textContent = label || "Presentation";
     activePositionKey = state.positionKey || null;
     activeCopySlideLink = state.copySlideLink || null;
+    activeAssetHandler = async (file) => {
+      const asset = await deckRepository.addFile(file);
+      const result = insertImageIntoSlide(
+        session.markdown,
+        presentation.slides[presentation.index]?.model,
+        asset,
+        session.annotationState,
+      );
+      session.applyMarkdown(result.markdown, result.annotationState, "Add image");
+      state.onSourceMarkdownChange?.(session.markdown);
+      await loadDeck(deckRepository, source, label, deckState(state, session, manager));
+    };
+    $("#add-image").hidden = false;
     setScreen("deck");
     suppressPositionPersistence = Boolean(savedPosition);
     await presentation.show(requestedIndex);
@@ -677,6 +705,14 @@ $("#back-home").addEventListener("click", (event) => {
 });
 $("#error-home").addEventListener("click", () => setScreen("home"));
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#add-image").addEventListener("click", () => $("#image-input").click());
+$("#image-input").addEventListener("change", async (event) => {
+  const [file] = event.target.files;
+  event.target.value = "";
+  if (!file || !activeAssetHandler) return;
+  try { await activeAssetHandler(file); }
+  catch (error) { showError(error); }
+});
 $("#resume-slide").addEventListener("click", () => {
   const index = Number.parseInt($("#resume-prompt").dataset.index || "0", 10);
   $("#resume-prompt").hidden = true;

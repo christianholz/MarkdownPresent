@@ -445,7 +445,7 @@ function filenameParts(path) {
 }
 
 export class AnnotationManager {
-  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onMarkdownChange, onStateChange, onDiscard, discardLabel = "Continue without saving", annotationState }) {
+  constructor({ stage, deck, downloadButton, presentation, sourceMarkdown, originalSourceMarkdown, sourcePath, title, onUpload, onDownloadWorkspace, onMarkdownChange, onStateChange, onDiscard, discardLabel = "Continue without saving", annotationState }) {
     this.stage = stage;
     this.deck = deck;
     this.downloadButton = downloadButton;
@@ -455,6 +455,7 @@ export class AnnotationManager {
     this.sourcePath = sourcePath || "presentation.md";
     this.title = title || "Presentation";
     this.onUpload = onUpload;
+    this.onDownloadWorkspace = onDownloadWorkspace;
     this.onMarkdownChange = onMarkdownChange;
     this.onStateChange = onStateChange;
     this.onDiscard = onDiscard;
@@ -1050,6 +1051,7 @@ export class AnnotationManager {
     menu.append(heading);
 
     const actions = [["Download Markdown", () => this.downloadMarkdown()]];
+    if (this.onDownloadWorkspace) actions.push(["Download deck with assets (.zip)", () => this.downloadWorkspace()]);
     if (this.comments.length) {
       actions.push(["Download Markdown with comments", () => this.downloadMarkdownWithComments()]);
       actions.push(["Download just comments", () => this.downloadComments()]);
@@ -1064,7 +1066,7 @@ export class AnnotationManager {
       button.textContent = label;
       button.addEventListener("click", async (event) => {
         event.stopPropagation();
-        action();
+        await action();
         if (closing) await this.stateChangePromise;
         if (closing && this.dirty) this.openSaveMenu(true);
         else this.finishPendingClose();
@@ -1091,6 +1093,13 @@ export class AnnotationManager {
   downloadMarkdown() {
     const { filename } = filenameParts(this.sourcePath);
     downloadText(filename, this.sourceMarkdown);
+    this.originalSourceMarkdown = this.sourceMarkdown;
+    this.editCount = 0;
+    this.syncDownloadButton();
+  }
+
+  async downloadWorkspace() {
+    await this.onDownloadWorkspace?.();
     this.originalSourceMarkdown = this.sourceMarkdown;
     this.editCount = 0;
     this.syncDownloadButton();

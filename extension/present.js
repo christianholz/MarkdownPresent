@@ -10,6 +10,7 @@ import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } fro
 import { DocumentSession } from "../src/document-session.js";
 import { HistoryController } from "../src/history.js";
 import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresentationPosition } from "../src/positions.js";
+import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "../src/asset-workspace.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -29,6 +30,8 @@ document.querySelector("#app").innerHTML = `
       <span id="slide-number">1 / 1</span>
       <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
       <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
+      <button id="add-image" aria-label="Add an image to this slide" title="Add image">▧+</button>
+      <input id="image-input" type="file" accept="image/*" hidden />
       <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
       <button id="next" aria-label="Next slide">→</button>
     </nav>
@@ -61,6 +64,7 @@ let annotations;
 let historyController;
 let positionKey;
 let suppressPositionPersistence = false;
+let activeAssetHandler = null;
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
@@ -121,11 +125,13 @@ async function boot() {
     const restoredDraft = restorableExtensionDraft(storedDraft, originalMarkdown);
     let preserveStaleDraft = Boolean(storedDraft && !restoredDraft);
     let draftWrite = Promise.resolve();
+    let repository;
     const persistDraft = (state) => {
       draftWrite = draftWrite.catch(() => {}).then(async () => {
         if (state.dirty) {
           preserveStaleDraft = false;
-          await chrome.storage.local.set({ [draftKey]: extensionDraftRecord(originalMarkdown, state) });
+          const assets = await repository.serializedAssets();
+          await chrome.storage.local.set({ [draftKey]: extensionDraftRecord(originalMarkdown, state, Date.now(), assets) });
         } else if (!preserveStaleDraft) {
           await chrome.storage.local.remove(draftKey);
         }
@@ -137,7 +143,11 @@ async function boot() {
       draftWrite = draftWrite.catch(() => {}).then(() => chrome.storage.local.remove(draftKey));
       return draftWrite;
     };
-    const repository = new GithubPageRepository(payload.source, originalMarkdown, payload.sourceTabId);
+    repository = new WorkingRepository(
+      new GithubPageRepository(payload.source, originalMarkdown, payload.sourceTabId),
+      payload.source,
+      restoredDraft?.assets,
+    );
     const manager = new AssetManager(repository, payload.source, CONFIG.presentation.assetConcurrency);
     presentation = new Presentation({
       stage: $("#stage"),
@@ -200,6 +210,12 @@ async function boot() {
         } : undefined,
         onDiscard: originalMarkdown ? discardDraft : undefined,
         onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
+        onDownloadWorkspace: () => downloadDeckWorkspace({
+          repository,
+          source: payload.source,
+          markdown: session.markdown,
+          references: [...new Set(documentModel.slides.flatMap((slide) => slide.images.map((image) => image.src)))],
+        }),
         onMarkdownChange: originalMarkdown
           ? (nextMarkdown, details = {}) => {
             session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel);
@@ -217,6 +233,18 @@ async function boot() {
         redo: $("#redo"),
       });
       historyController.setSession(session, () => renderDeck(presentation.index, true));
+      activeAssetHandler = originalMarkdown ? async (file) => {
+        const asset = await repository.addFile(file);
+        const result = insertImageIntoSlide(
+          session.markdown,
+          presentation.slides[presentation.index]?.model,
+          asset,
+          session.annotationState,
+        );
+        session.applyMarkdown(result.markdown, result.annotationState, "Add image");
+        await renderDeck(presentation.index, true);
+      } : null;
+      $("#add-image").hidden = !activeAssetHandler;
       $("#deck-name").textContent = payload.source.path.split("/").pop() || "Presentation";
       setScreen("deck");
       await presentation.show(requestedIndex);
@@ -247,6 +275,14 @@ $("#close").addEventListener("click", (event) => {
 });
 $("#close-error").addEventListener("click", () => window.close());
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#add-image").addEventListener("click", () => $("#image-input").click());
+$("#image-input").addEventListener("change", async (event) => {
+  const [file] = event.target.files;
+  event.target.value = "";
+  if (!file || !activeAssetHandler) return;
+  try { await activeAssetHandler(file); }
+  catch (error) { showError(error); }
+});
 $("#resume-slide").addEventListener("click", () => {
   $("#resume-prompt").hidden = true;
   void presentation?.show(Number.parseInt($("#resume-prompt").dataset.index || "0", 10));

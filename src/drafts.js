@@ -6,8 +6,8 @@ export function extensionDraftKey(source) {
   return `mdpresent:draft:${parts.join(":")}`;
 }
 
-export function extensionDraftRecord(baseMarkdown, state, updatedAt = Date.now()) {
-  return {
+export function extensionDraftRecord(baseMarkdown, state, updatedAt = Date.now(), assets = []) {
+  const record = {
     version: DRAFT_VERSION,
     baseMarkdown,
     markdown: state.markdown,
@@ -20,6 +20,8 @@ export function extensionDraftRecord(baseMarkdown, state, updatedAt = Date.now()
     },
     updatedAt,
   };
+  if (assets.length) record.assets = assets;
+  return record;
 }
 
 export function restorableExtensionDraft(record, baseMarkdown) {
