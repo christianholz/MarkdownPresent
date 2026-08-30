@@ -389,6 +389,9 @@ export class Presentation {
     this.imagePopover = null;
     this.imagePopoverTrigger = null;
     this.escapeLockRequest = 0;
+    this.printStage = null;
+    this.printPreparationPromise = null;
+    this.renderVersion = 0;
     this.handleStageClick = (event) => {
       if (this.imagePopover) {
         event.preventDefault();
@@ -440,6 +443,10 @@ export class Presentation {
 
   async create(document, assetManager) {
     this.closeImagePopover();
+    this.renderVersion += 1;
+    this.printPreparationPromise = null;
+    this.printStage?.remove();
+    this.printStage = null;
     const previousAssetManager = this.assetManager;
     const canReuseSlides = previousAssetManager === assetManager;
     if (!canReuseSlides) this.paginationCache.clear();
@@ -513,7 +520,11 @@ export class Presentation {
   }
 
   fitCurrent() {
-    const slide = this.slides[this.index]?.element;
+    this.fitSlide(this.index);
+  }
+
+  fitSlide(index, { notify = true } = {}) {
+    const slide = this.slides[index]?.element;
     if (!slide || !slide.classList.contains("is-active")) return;
     slide.style.setProperty("--slide-number-right", getComputedStyle(slide).paddingRight);
     const body = slide.querySelector(".slide-body");
@@ -552,27 +563,49 @@ export class Presentation {
       maximizeSpacing();
     }
     slide.classList.toggle("is-overflowing", !fits());
-    this.stage.dispatchEvent(new CustomEvent("mdpresent:fit", { detail: { index: this.index } }));
+    if (notify) this.stage.dispatchEvent(new CustomEvent("mdpresent:fit", { detail: { index } }));
   }
 
-  async prepareAllSlides() {
+  prepareAllSlides() {
+    if (this.printPreparationPromise) return this.printPreparationPromise;
+    const preparation = this.buildPrintStage();
+    const tracked = preparation.finally(() => {
+      if (this.printPreparationPromise === tracked) this.printPreparationPromise = null;
+    });
+    this.printPreparationPromise = tracked;
+    return this.printPreparationPromise;
+  }
+
+  async buildPrintStage() {
     if (!this.slides.length) return;
-    const activeIndex = this.index;
+    const renderVersion = this.renderVersion;
     this.closeImagePopover();
-    this.stage.classList.add("is-pdf-preparing");
-    try {
-      await Promise.all(this.slides.map((_, index) => this.loadAssets(index)));
-      await Promise.resolve(document.fonts?.ready);
-      for (let index = 0; index < this.slides.length; index += 1) {
-        this.index = index;
-        this.slides.forEach(({ element }, candidate) => element.classList.toggle("is-active", candidate === index));
-        this.fitCurrent();
-      }
-    } finally {
-      this.index = activeIndex;
-      this.slides.forEach(({ element }, index) => element.classList.toggle("is-active", index === activeIndex));
-      this.stage.classList.remove("is-pdf-preparing");
-      this.fitCurrent();
+    await Promise.all(this.slides.map((_, index) => this.loadAssets(index)));
+    await Promise.resolve(document.fonts?.ready);
+    if (renderVersion !== this.renderVersion) return;
+    const printStage = document.createElement("main");
+    printStage.className = "print-stage";
+    printStage.setAttribute("aria-hidden", "true");
+    const clones = this.slides.map(({ element }) => {
+      const clone = element.cloneNode(true);
+      clone.classList.add("is-active");
+      clone.querySelectorAll(".slide-comment, .slide-comment-card, .comment-editor, .comment-context-menu, .layout-diagnostics, .image-popover").forEach((item) => item.remove());
+      printStage.append(clone);
+      return clone;
+    });
+    this.printStage?.remove();
+    this.printStage = printStage;
+    this.stage.after(printStage);
+    await Promise.all(clones.flatMap((slide) => [...slide.querySelectorAll("img")].map((image) => image.decode().catch(() => {}))));
+    if (renderVersion !== this.renderVersion) {
+      printStage.remove();
+      return;
+    }
+    for (let index = 0; index < clones.length; index += 1) {
+      const original = this.slides[index].element;
+      this.slides[index].element = clones[index];
+      try { this.fitSlide(index, { notify: false }); }
+      finally { this.slides[index].element = original; }
     }
   }
 
@@ -687,6 +720,7 @@ export class Presentation {
     document.removeEventListener("keydown", this.handleDocumentKeydown);
     document.removeEventListener("fullscreenchange", this.handleFullscreenChange);
     this.resizeObserver.disconnect();
+    this.printStage?.remove();
     this.assetManager?.dispose();
   }
 }

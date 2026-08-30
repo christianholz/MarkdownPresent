@@ -25,6 +25,10 @@ const SAMPLE = `# Research Planning Session
 
 Questions, evidence, and the smallest useful next step
 
+## Overview
+
+<!-- TOC -->
+
 ## A focused pilot will reduce the biggest uncertainty
 
 The first round should answer one question well: **does the proposed workflow help people reach a confident decision faster?**
@@ -88,6 +92,26 @@ The section is intentionally long so the example also demonstrates automatic, im
 ### Strong signals should change the next iteration
 
 Prioritize findings that are repeated, consequential, and directly connected to the central research question.
+
+## Grouped evidence stays compact
+
+{% capture evidence_table %}
+| Signal | ::2_ Observation | ::2_ Reflection |
+| ^ | First round | Second round | First round | Second round |
+| --- | --- | --- | --- | --- |
+| Orientation | 42 s | 25 s | Uncertain | Clear |
+| Recovery | Assisted | Unaided | Frustrating | Expected |
+| Confidence | 2.8 / 5 | 4.1 / 5 | Mixed | Strong |
+{% endcapture %}
+{% include grouped_table.html table=evidence_table %}
+
+## Analysis code is highlighted locally
+
+~~~python
+signals = ["orientation", "recovery", "confidence"]
+for signal in signals:
+    compare_rounds(signal)
+~~~
 
 ## Math and links are included
 
@@ -161,7 +185,7 @@ document.querySelector("#app").innerHTML = `
     </main>
     <footer class="home-footer">
       <span>Files stay in this browser.</span>
-      <span>MarkdownPresent v0.1 · © <a href="https://christianholz.net">Christian Holz</a> 2026 · <a href="https://github.com/christianholz/MarkdownPresent">Source on GitHub</a></span>
+      <span>MarkdownPresent v0.2 · © <a href="https://christianholz.net">Christian Holz</a> 2026 · <a href="https://github.com/christianholz/MarkdownPresent">Source on GitHub</a></span>
       <span>Arrow keys · Space · F for fullscreen</span>
     </footer>
   </section>
@@ -435,6 +459,9 @@ async function loadDeck(repository, source, label, state = {}) {
     await presentation.show(requestedIndex);
     suppressPositionPersistence = false;
     if (savedPosition) offerResume(resolvePresentationPosition(presentation, savedPosition));
+    const prepareForPrint = () => { void presentation.prepareAllSlides(); };
+    if (window.requestIdleCallback) window.requestIdleCallback(prepareForPrint, { timeout: 1500 });
+    else window.setTimeout(prepareForPrint, 250);
   } catch (error) { showError(error); }
 }
 

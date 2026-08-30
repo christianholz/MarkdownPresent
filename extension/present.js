@@ -282,6 +282,9 @@ async function boot() {
       setScreen("deck");
       await presentation.show(requestedIndex);
       await Promise.allSettled(presentation.slides.map((_, index) => presentation.loadAssets(index)));
+      const prepareForPrint = () => { void presentation.prepareAllSlides(); };
+      if (window.requestIdleCallback) window.requestIdleCallback(prepareForPrint, { timeout: 1500 });
+      else window.setTimeout(prepareForPrint, 250);
     };
 
     const linkedIndex = Number.isInteger(payload.initialSlide) ? payload.initialSlide : null;

@@ -1,60 +1,62 @@
 # MarkdownPresent
 
-A static, browser-only renderer that turns ordinary Markdown into clean 16:9 presentations. Use [MarkdownPresent](https://mdpresent.siplab.org) directly, or install the Chrome extension to present Markdown files from GitHub.
+A browser-only renderer that turns ordinary Markdown into clean 16:9 presentations. Use [MarkdownPresent](https://mdpresent.siplab.org) directly, or install the Chrome extension to present Markdown files from GitHub.
 
 ## Markdown format
 
-An H1 creates a title or section slide. An H2 starts a content slide; H3 and deeper headings remain on that slide. Use `---` or `<!-- slide -->` to force a slide break.
+An H1 creates a title or section slide. An H2 starts a content slide; H3–H6 stay within that slide. Use `---` or `<!-- slide -->` to force a break.
 
 ```md
 # Presentation title
 
 Optional subtitle
 
-## Slide title
+## Overview
+
+<!-- TOC -->
+
+## A slide with an image
 
 - First point
   - Nested point
 
-## A slide with an image
-
-Text stays on the left.
-
 ![Result](images/result.png)
 ```
 
-MarkdownPresent supports formatted text, nested lists, tables, code, images, and math written as `$inline$` or `$$display$$`. Image paths are resolved relative to the Markdown file.
+The TOC marker is case-insensitive and generates links from H1 and H2 headings. MarkdownPresent also supports formatted text, nested lists, ordinary tables, highlighted fenced code, images, and `$inline$` or `$$display$$` math. Image paths are relative to the Markdown file.
 
-If an H2 section does not fit, it is automatically split into up to three slides with titles such as `(1/3)`, `(2/3)`, and `(3/3)`. Pagination accounts for the included figures and their aspect ratios.
+Long H2 sections split automatically into up to three image-aware slides. MarkdownPresent keeps headings with their content, avoids list widows, repeats heading context with “(cont'd),” and repeats headers when a table continues.
 
-## Using MarkdownPresent
+Grouped table headers use the project’s extended table syntax:
 
-Upload a Markdown file together with its assets, upload a complete folder, or paste Markdown directly. Referenced images are checked before the presentation opens; local image decks should normally be uploaded as a folder.
+```md
+| Metric | ::2_ Before | ::2_ After |
+| ^ | A | B | A | B |
+| --- | --- | --- | --- | --- |
+| Time | 42 s | 25 s | 18 s | 12 s |
+```
 
-Navigate with the arrow keys or Space, press `F` for fullscreen, and use the slide outline to jump through the deck. Images can be opened in a focused viewer.
+See the complete [feature-tour Markdown](examples/layout-test/feature-tour.md).
 
-Right-click a heading, paragraph, or bullet to edit it in place, or add a dated comment. Edits update the Markdown, rebuild and repaginate the deck, and can be downloaded afterward.
+## Use
+
+Upload a folder, choose a Markdown file with its assets, or paste Markdown. Navigate with the arrow keys or Space; press `F` for fullscreen and `/` to search slides.
+
+Right-click a heading, paragraph, or list item to edit it in place or add a dated comment. `Enter` adds a line or list item, `Cmd/Ctrl+Enter` commits, `Escape` discards, and `Tab`/`Shift+Tab` changes list indentation. Undo, redo, edit history, image insertion, PDF export, slide links, and workspace downloads keep Markdown as the canonical source.
 
 ## Chrome extension
 
-Download the [latest Chrome extension](https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip), extract it, then open `chrome://extensions`, enable Developer mode, and choose **Load unpacked**.
+Download the [latest Chrome extension](https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip), extract it, then load the folder from `chrome://extensions` with Developer mode enabled.
 
-The extension adds a **Present** button to supported GitHub Markdown pages. It is currently scoped to repositories under `eth-siplab-team`.
+The extension adds **Present** on supported GitHub Markdown pages. It can restore local drafts and save Markdown plus newly added images back to GitHub with a fine-grained contents token. It is currently scoped to `eth-siplab-team` repositories.
 
 ## Development
 
-Install dependencies and start the Vite development server:
-
 ```sh
 npx pnpm@11.9.0 install
-npx pnpm@11.9.0 dev
-```
-
-Run the checks and build both the standalone site and extension with:
-
-```sh
+pnpm dev
 pnpm test
 pnpm build
 ```
 
-The standalone output is written to `dist`; the self-contained extension is written to `dist/extension`. Slide layouts are ordinary HTML templates in `src/templates/`.
+Press `Cmd/Ctrl+Shift+D` in a deck to toggle layout diagnostics.
