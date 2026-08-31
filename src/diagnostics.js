@@ -37,6 +37,9 @@ export class LayoutDiagnostics {
   toggle(force = !this.enabled) {
     this.enabled = Boolean(force);
     document.body.classList.toggle("has-layout-diagnostics", this.enabled);
+    document.dispatchEvent(new CustomEvent("mdpresent:diagnosticschange", {
+      detail: { enabled: this.enabled },
+    }));
     this.refresh();
   }
 
@@ -67,6 +70,9 @@ export class LayoutDiagnostics {
     this.presentation.stage.removeEventListener("pointermove", this.handlePointerMove);
     this.presentation.stage.removeEventListener("mdpresent:fit", this.handleFit);
     document.body.classList.remove("has-layout-diagnostics");
+    document.dispatchEvent(new CustomEvent("mdpresent:diagnosticschange", {
+      detail: { enabled: false },
+    }));
     this.presentation.stage.querySelectorAll(".layout-diagnostics").forEach((overlay) => overlay.remove());
   }
 }

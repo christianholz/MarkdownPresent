@@ -25,6 +25,7 @@ export class LocalRepository {
     if (!file) throw new Error(`Local asset not selected: ${path}`);
     return file;
   }
+  async hasBlob(path) { return this.files.has(normalizeLocalPath(path)); }
 }
 
 export class InlineRepository {
@@ -34,6 +35,12 @@ export class InlineRepository {
     const response = await fetch(path);
     if (!response.ok) throw new Error(`Referenced asset is not available: ${path}`);
     return response.blob();
+  }
+  async hasBlob() {
+    // Development servers commonly return the app shell for missing paths.
+    // Authored assets live in the working repository, so remote probing would
+    // turn those fallback responses into false filename collisions.
+    return false;
   }
 }
 
@@ -55,5 +62,13 @@ export class GithubPageRepository {
     const binary = atob(result.data);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     return new Blob([bytes], { type: result.type });
+  }
+  async hasBlob(path) {
+    try {
+      await this.readBlob(path);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

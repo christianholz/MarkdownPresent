@@ -26,19 +26,32 @@ document.querySelector("#app").innerHTML = `
       <button class="icon-button" id="fullscreen" aria-label="Toggle fullscreen">⛶</button>
     </div>
     <main class="stage" id="stage"></main>
-    <nav class="deck-controls" aria-label="Slide controls">
-      <button id="previous" aria-label="Previous slide">←</button>
-      <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
-      <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
-      <span id="slide-number">1 / 1</span>
-      <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
-      <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
-      <button id="add-image" aria-label="Add an image to this slide" title="Add image">▧+</button>
-      <input id="image-input" type="file" accept="image/*" hidden />
-      <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">PDF</button>
-      <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
-      <button id="next" aria-label="Next slide">→</button>
-    </nav>
+    <div class="deck-control-cluster">
+      <nav class="deck-controls" aria-label="Slide controls">
+        <button id="previous" aria-label="Previous slide">←</button>
+        <span id="slide-number">1 / 1</span>
+        <button id="outline-toggle" aria-label="Show content overview" aria-controls="slide-outline" aria-expanded="false" title="Content overview">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
+        </button>
+        <button id="edit-toggle" aria-label="Show editing tools" aria-controls="edit-controls" aria-expanded="false" title="Edit">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.6-10.6a2.2 2.2 0 0 0-3.1-3.1L5.1 15.9 4 20Z"/><path d="m14.5 6.5 3 3"/></svg>
+        </button>
+        <button id="next" aria-label="Next slide">→</button>
+      </nav>
+      <nav class="edit-controls" id="edit-controls" aria-label="Editing tools" hidden>
+        <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
+        <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
+        <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false" title="Edit history">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6M12 8v4l2.8 1.7"/></svg>
+        </button>
+        <button id="add-image" aria-label="Add an image to this slide" title="Add image"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
+        <input id="image-input" type="file" accept="image/*" hidden />
+        <button id="download-comments" aria-label="Download changes" title="Download changes" hidden>⤓</button>
+        <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7Z"/><path d="M14 3v5h4M12 11v6m-3-3 3 3 3-3"/></svg>
+        </button>
+      </nav>
+    </div>
     <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
@@ -74,6 +87,34 @@ let diagnostics;
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
+  if (name !== "deck") setEditControlsOpen(false);
+}
+
+function setEditControlsOpen(open) {
+  const expanded = Boolean(open);
+  const controls = $("#edit-controls");
+  const cluster = $(".deck-control-cluster");
+  if (expanded) {
+    controls.hidden = false;
+    controls.inert = false;
+    controls.setAttribute("aria-hidden", "false");
+    const gap = Number.parseFloat(getComputedStyle(cluster).getPropertyValue("--edit-controls-gap")) || 8;
+    cluster.style.setProperty("--edit-controls-shift", `${(controls.offsetWidth + gap) / 2}px`);
+    controls.getBoundingClientRect();
+  } else {
+    controls.inert = true;
+    controls.setAttribute("aria-hidden", "true");
+  }
+  $("#edit-toggle").setAttribute("aria-expanded", String(expanded));
+  $("#edit-toggle").classList.toggle("is-active", expanded);
+  cluster.classList.toggle("is-edit-open", expanded);
+  if (!expanded) historyController?.close();
+}
+
+function syncPdfExport(enabled = !document.body.classList.contains("has-layout-diagnostics")) {
+  const button = $("#export-pdf");
+  button.disabled = !enabled;
+  button.title = enabled ? "Export PDF" : "Turn off layout diagnostics before exporting PDF";
 }
 
 function showError(error) {
@@ -160,6 +201,7 @@ async function boot() {
       stage: $("#stage"),
       counter: $("#slide-number"),
       progress: $("#progress"),
+      onExit: leavePresentation,
       onIndexChange: (index) => {
         updateSlideHash(index);
         outline?.setActive(index);
@@ -265,7 +307,10 @@ async function boot() {
         undo: $("#undo"),
         redo: $("#redo"),
       });
-      historyController.setSession(session, () => renderDeck(presentation.index, true));
+      historyController.setSession(session, async (restoredSession) => {
+        await persistDraft(restoredSession.snapshot());
+        return renderDeck(presentation.index, true);
+      });
       activeAssetHandler = originalMarkdown ? async (file) => {
         const asset = await repository.addFile(file);
         const result = insertImageIntoSlide(
@@ -275,6 +320,7 @@ async function boot() {
           session.annotationState,
         );
         session.applyMarkdown(result.markdown, result.annotationState, "Add image");
+        await persistDraft(session.snapshot());
         await renderDeck(presentation.index, true);
       } : null;
       $("#add-image").hidden = !activeAssetHandler;
@@ -305,12 +351,19 @@ async function boot() {
 
 $("#previous").addEventListener("click", () => presentation?.previous());
 $("#next").addEventListener("click", () => presentation?.next());
+async function leavePresentation() {
+  if (document.fullscreenElement) await document.exitFullscreen();
+  if (annotations) annotations.requestClose(() => window.close()); else window.close();
+}
 $("#close").addEventListener("click", (event) => {
   event.stopPropagation();
-  if (annotations) annotations.requestClose(() => window.close()); else window.close();
+  void leavePresentation();
 });
 $("#close-error").addEventListener("click", () => window.close());
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#edit-toggle").addEventListener("click", () => {
+  setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
+});
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
 $("#add-image").addEventListener("click", () => $("#image-input").click());
 $("#image-input").addEventListener("change", async (event) => {
@@ -320,6 +373,10 @@ $("#image-input").addEventListener("change", async (event) => {
   try { await activeAssetHandler(file); }
   catch (error) { showError(error); }
 });
+document.addEventListener("mdpresent:diagnosticschange", (event) => {
+  syncPdfExport(!event.detail?.enabled);
+});
+syncPdfExport();
 $("#resume-slide").addEventListener("click", () => {
   $("#resume-prompt").hidden = true;
   void presentation?.show(Number.parseInt($("#resume-prompt").dataset.index || "0", 10));

@@ -5,7 +5,7 @@ function nextFrame() {
 let exporting = false;
 
 export async function exportPresentationPdf(presentation, statusElement = null) {
-  if (!presentation || exporting) return;
+  if (!presentation || exporting || document.body.classList.contains("has-layout-diagnostics")) return;
   exporting = true;
   document.body.classList.add("is-preparing-pdf");
   if (statusElement) statusElement.hidden = false;

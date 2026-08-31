@@ -4,6 +4,7 @@ import titleSlideTemplate from "./templates/title-slide.html?raw";
 import contentSlideTemplate from "./templates/content-slide.html?raw";
 import imageSlideTemplate from "./templates/image-slide.html?raw";
 import gallerySlideTemplate from "./templates/gallery-slide.html?raw";
+import titleImageSlideTemplate from "./templates/title-image-slide.html?raw";
 
 function cloneNode(node) {
   return node ? node.cloneNode(true) : null;
@@ -114,6 +115,7 @@ function applyImageMeasurements(slide, model, measurements) {
 
 function refreshCaptionLayout(slide) {
   slide.classList.remove("is-caption-layout");
+  if (slide.classList.contains("is-title-slide")) return false;
   const copy = slide.querySelector(".slide-copy");
   const media = slide.querySelector(".slide-media");
   const blocks = copy ? [...copy.children].filter((element) => !element.matches(".slide-comment-card")) : [];
@@ -375,13 +377,22 @@ function paginateDocument(documentModel, measurements, cache) {
 }
 
 export class Presentation {
-  constructor({ stage, counter, progress, onIndexChange }) {
+  constructor({ stage, counter, progress, onIndexChange, onExit }) {
     this.stage = stage;
     this.counter = counter;
     this.progress = progress;
     this.onIndexChange = onIndexChange;
+    this.onExit = onExit;
     this.slides = [];
     this.index = 0;
+    this.atEnd = false;
+    this.endScreen = document.createElement("div");
+    this.endScreen.className = "presentation-end-screen";
+    this.endScreen.hidden = true;
+    this.endScreen.tabIndex = 0;
+    this.endScreen.setAttribute("role", "button");
+    this.endScreen.setAttribute("aria-label", "End of slide show, click to exit.");
+    this.endScreen.textContent = "End of slide show, click to exit.";
     this.assetManager = null;
     this.paginationCache = new Map();
     this.fontsReady = false;
@@ -393,6 +404,11 @@ export class Presentation {
     this.printPreparationPromise = null;
     this.renderVersion = 0;
     this.handleStageClick = (event) => {
+      if (this.atEnd && event.target.closest?.(".presentation-end-screen")) {
+        event.preventDefault();
+        this.exitEndScreen();
+        return;
+      }
       if (this.imagePopover) {
         event.preventDefault();
         event.stopPropagation();
@@ -413,6 +429,12 @@ export class Presentation {
       if (image && this.stage.contains(image)) this.openImagePopover(image);
     };
     this.handleStageKeydown = (event) => {
+      if (this.atEnd && event.target.closest?.(".presentation-end-screen") && ["Enter", " "].includes(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.exitEndScreen();
+        return;
+      }
       const image = event.target.closest?.(".image-slot img");
       if (image && ["Enter", " "].includes(event.key)) {
         event.preventDefault();
@@ -443,6 +465,9 @@ export class Presentation {
 
   async create(document, assetManager) {
     this.closeImagePopover();
+    this.atEnd = false;
+    this.endScreen.hidden = true;
+    this.stage.closest(".deck-screen")?.classList.remove("is-at-end");
     this.renderVersion += 1;
     this.printPreparationPromise = null;
     this.printStage?.remove();
@@ -469,7 +494,7 @@ export class Presentation {
       element.classList.toggle("is-active", index === nextIndex);
       return reusable || { model, element, assetsLoaded: false };
     });
-    this.stage.replaceChildren(...nextSlides.map(({ element }) => element));
+    this.stage.replaceChildren(...nextSlides.map(({ element }) => element), this.endScreen);
     this.slides = nextSlides;
     this.index = nextIndex;
     this.assetManager = assetManager;
@@ -479,7 +504,11 @@ export class Presentation {
 
   async show(index) {
     if (!this.slides.length) return;
+    if (index >= this.slides.length) return this.showEndScreen();
     this.closeImagePopover();
+    this.atEnd = false;
+    this.endScreen.hidden = true;
+    this.stage.closest(".deck-screen")?.classList.remove("is-at-end");
     this.index = Math.max(0, Math.min(index, this.slides.length - 1));
     this.slides.forEach(({ element }, i) => element.classList.toggle("is-active", i === this.index));
     this.counter.textContent = `${this.index + 1} / ${this.slides.length}`;
@@ -489,8 +518,21 @@ export class Presentation {
     this.fitCurrent();
   }
 
-  next() { return this.show(this.index + 1); }
-  previous() { return this.show(this.index - 1); }
+  showEndScreen() {
+    if (!this.slides.length) return;
+    this.closeImagePopover();
+    this.atEnd = true;
+    this.slides.forEach(({ element }) => element.classList.remove("is-active"));
+    this.endScreen.hidden = false;
+    this.stage.closest(".deck-screen")?.classList.add("is-at-end");
+    this.progress.style.transform = "scaleX(1)";
+    this.endScreen.focus({ preventScroll: true });
+  }
+
+  exitEndScreen() { this.onExit?.(); }
+
+  next() { return this.atEnd ? this.exitEndScreen() : this.show(this.index + 1); }
+  previous() { return this.atEnd ? this.show(this.slides.length - 1) : this.show(this.index - 1); }
   first() { return this.show(0); }
   last() { return this.show(this.slides.length - 1); }
 
@@ -735,6 +777,8 @@ function documentFragmentFrom(model, index) {
   const isTitleSlide = model.title?.tagName === "H1";
   const template = model.imageOnly
     ? gallerySlideTemplate
+    : isTitleSlide && model.images.length
+      ? titleImageSlideTemplate
     : isTitleSlide
     ? titleSlideTemplate
     : model.images.length
@@ -756,6 +800,8 @@ function documentFragmentFrom(model, index) {
 
   if (model.images.length) {
     const media = slide.querySelector('[data-slot="media"]');
+    slide.classList.add("has-media");
+    if (!media) throw new Error("This slide layout cannot contain images.");
     media.classList.toggle("is-single-image", !model.imageOnly && model.images.length === 1);
     if (model.imageOnly) media.style.setProperty("--gallery-count", model.images.length);
     for (const image of model.images) {

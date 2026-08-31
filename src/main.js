@@ -6,7 +6,13 @@ import { loadImageMeasurements, Presentation } from "./presentation.js";
 import { SlideOutline } from "./slide-outline.js";
 import { CONFIG } from "./config.js";
 import { AnnotationManager } from "./annotations.js";
-import { persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "./example-storage.js";
+import {
+  persistExampleAssets,
+  persistExampleMarkdown,
+  readExampleAssets,
+  readExampleMarkdown,
+  resetExampleMarkdown,
+} from "./example-storage.js";
 import { DocumentSession } from "./document-session.js";
 import { HistoryController } from "./history.js";
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "./asset-workspace.js";
@@ -132,61 +138,55 @@ Keep the successful parts stable and change only the interaction under investiga
 
 document.querySelector("#app").innerHTML = `
   <section class="home-screen" data-screen="home">
-    <header class="brand"><span class="brand-mark">MP</span><span>MarkdownPresent</span></header>
+    <header class="brand">MarkdownPresent</header>
     <main class="home-main">
       <div class="intro">
         <p class="eyebrow">Markdown → presentation</p>
         <h1>Your notes, already on stage.</h1>
-        <p class="lede">Upload a folder, install the GitHub extension, or paste Markdown directly. Everything is rendered in your browser.</p>
+        <p class="lede">Upload a folder or paste Markdown directly. Everything is rendered in your browser.</p>
       </div>
-      <section class="source-card" aria-label="Choose presentation source">
-        <div class="tabs" role="tablist">
-          <button class="tab is-active" data-tab="upload" role="tab" aria-selected="true">Upload folder</button>
-          <button class="tab" data-tab="extension" role="tab" aria-selected="false">Chrome extension</button>
-          <button class="tab" data-tab="paste" role="tab" aria-selected="false">Paste directly</button>
-        </div>
-        <div class="tab-panel is-active" data-panel="upload">
-          <label class="drop-zone" id="drop-zone">
-            <input id="file-input" type="file" accept=".md,.markdown,image/*" multiple />
-            <span class="drop-icon">↓</span>
-            <strong>Drop a folder or Markdown file</strong>
-            <span>or choose a Markdown file and its assets</span>
-          </label>
-          <label class="folder-button">Choose a folder<input id="folder-input" type="file" webkitdirectory multiple /></label>
-          <p class="source-note">You can also upload one Markdown file, but every referenced asset must be reachable. If it uses local images, upload the directory instead.</p>
-          <p class="asset-status" id="file-status" aria-live="polite">A folder may contain several Markdown presentations.</p>
-          <section class="local-browser" id="local-browser" hidden>
-            <label class="field-label" for="local-filter">Choose a presentation</label>
-            <input id="local-filter" type="search" placeholder="Filter Markdown files…" autocomplete="off" />
-            <div class="markdown-files" id="local-files" role="listbox" aria-label="Local Markdown presentations"></div>
-          </section>
-        </div>
-        <div class="tab-panel extension-panel" data-panel="extension">
-          <p class="field-label">Chrome extension</p>
-          <a class="extension-download" href="https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip">Download the latest extension</a>
-          <ol class="extension-steps">
-            <li>Unzip the downloaded file.</li>
-            <li>Open <code>chrome://extensions</code> and enable Developer mode.</li>
-            <li>Choose <strong>Load unpacked</strong> and select the extracted folder.</li>
-          </ol>
-          <p class="source-note">On supported GitHub Markdown pages, click <strong>Present</strong> beside the Raw button.</p>
-        </div>
-        <div class="tab-panel" data-panel="paste">
-          <div class="field-label-row">
-            <label class="field-label" for="markdown-input">Markdown</label>
-            <button class="reset-example" id="reset-example" type="button" hidden>Reset example</button>
+      <div class="source-area">
+        <section class="source-card" aria-label="Choose presentation source">
+          <div class="tabs" role="tablist">
+            <button class="tab is-active" data-tab="upload" role="tab" aria-selected="true">Upload files</button>
+            <button class="tab" data-tab="paste" role="tab" aria-selected="false">Paste Markdown</button>
           </div>
-          <textarea id="markdown-input" spellcheck="false" aria-label="Markdown source"></textarea>
-          <p class="asset-status" id="paste-status" aria-live="polite"></p>
-          <button class="primary-button" id="present-paste">Check and present</button>
-        </div>
-        <p class="form-error" id="form-error" role="alert"></p>
-      </section>
+          <div class="tab-panel is-active" data-panel="upload">
+            <label class="drop-zone" id="drop-zone">
+              <input id="file-input" type="file" accept=".md,.markdown,image/*" multiple />
+              <span class="drop-icon">↓</span>
+              <strong>Drop a folder or Markdown file</strong>
+              <span>or choose a Markdown file and its assets</span>
+              <span class="privacy-note">(Files stay in this browser)</span>
+            </label>
+            <label class="folder-button">Choose a folder <span class="privacy-note">(Files stay in this browser)</span><input id="folder-input" type="file" webkitdirectory multiple /></label>
+            <p class="source-note">You can also upload one Markdown file, but every referenced asset must be reachable. If it uses local images, upload the directory instead.</p>
+            <p class="asset-status" id="file-status" aria-live="polite">A folder may contain several Markdown presentations.</p>
+            <section class="local-browser" id="local-browser" hidden>
+              <label class="field-label" for="local-filter">Choose a presentation</label>
+              <input id="local-filter" type="search" placeholder="Filter Markdown files…" autocomplete="off" />
+              <div class="markdown-files" id="local-files" role="listbox" aria-label="Local Markdown presentations"></div>
+            </section>
+          </div>
+          <div class="tab-panel" data-panel="paste">
+            <div class="field-label-row">
+              <label class="field-label" for="markdown-input">Markdown</label>
+              <button class="reset-example" id="reset-example" type="button" hidden>Reset example</button>
+            </div>
+            <textarea id="markdown-input" spellcheck="false" aria-label="Markdown source"></textarea>
+            <p class="asset-status" id="paste-status" aria-live="polite"></p>
+            <button class="primary-button" id="present-paste">Check and present</button>
+          </div>
+          <p class="form-error" id="form-error" role="alert"></p>
+        </section>
+        <aside class="extension-prompt">
+          <span>Install MarkdownPresent as a Chrome extension to present Markdown directly from GitHub.</span>
+          <a href="https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip">Install extension&nbsp; ↗</a>
+        </aside>
+      </div>
     </main>
     <footer class="home-footer">
-      <span>Files stay in this browser.</span>
       <span>MarkdownPresent v0.2 · © <a href="https://christianholz.net">Christian Holz</a> 2026 · <a href="https://github.com/christianholz/MarkdownPresent">Source on GitHub</a></span>
-      <span>Arrow keys · Space · F for fullscreen</span>
     </footer>
   </section>
 
@@ -201,19 +201,32 @@ document.querySelector("#app").innerHTML = `
       <button class="icon-button" id="fullscreen" aria-label="Toggle fullscreen">⛶</button>
     </div>
     <main class="stage" id="stage"></main>
-    <nav class="deck-controls" aria-label="Slide controls">
-      <button id="previous" aria-label="Previous slide">←</button>
-      <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
-      <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
-      <span id="slide-number">1 / 1</span>
-      <button id="outline-toggle" aria-label="Show slide list" aria-controls="slide-outline" aria-expanded="false">☷</button>
-      <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false">◷</button>
-      <button id="add-image" aria-label="Add an image to this slide" title="Add image">▧+</button>
-      <input id="image-input" type="file" accept="image/*" hidden />
-      <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">PDF</button>
-      <button id="download-comments" aria-label="Download comments" title="Download comments" hidden>⤓</button>
-      <button id="next" aria-label="Next slide">→</button>
-    </nav>
+    <div class="deck-control-cluster">
+      <nav class="deck-controls" aria-label="Slide controls">
+        <button id="previous" aria-label="Previous slide">←</button>
+        <span id="slide-number">1 / 1</span>
+        <button id="outline-toggle" aria-label="Show content overview" aria-controls="slide-outline" aria-expanded="false" title="Content overview">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
+        </button>
+        <button id="edit-toggle" aria-label="Show editing tools" aria-controls="edit-controls" aria-expanded="false" title="Edit">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.6-10.6a2.2 2.2 0 0 0-3.1-3.1L5.1 15.9 4 20Z"/><path d="m14.5 6.5 3 3"/></svg>
+        </button>
+        <button id="next" aria-label="Next slide">→</button>
+      </nav>
+      <nav class="edit-controls" id="edit-controls" aria-label="Editing tools" hidden>
+        <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
+        <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
+        <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false" title="Edit history">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6M12 8v4l2.8 1.7"/></svg>
+        </button>
+        <button id="add-image" aria-label="Add an image to this slide" title="Add image"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
+        <input id="image-input" type="file" accept="image/*" hidden />
+        <button id="download-comments" aria-label="Download changes" title="Download changes" hidden>⤓</button>
+        <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">
+          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7Z"/><path d="M14 3v5h4M12 11v6m-3-3 3 3 3-3"/></svg>
+        </button>
+      </nav>
+    </div>
     <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
@@ -250,6 +263,7 @@ let activeAssetHandler = null;
 let diagnostics;
 let selectedFiles = [];
 let markdownFiles = [];
+let pastedAssets = readExampleAssets();
 
 $("#markdown-input").value = readExampleMarkdown(SAMPLE);
 
@@ -263,11 +277,46 @@ function savePastedMarkdown(markdown) {
   syncExampleResetButton();
 }
 
+function savePastedAssets(assets) {
+  pastedAssets = assets;
+  persistExampleAssets(assets);
+}
+
 syncExampleResetButton();
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
-  if (name !== "deck") $("#resume-prompt").hidden = true;
+  if (name !== "deck") {
+    $("#resume-prompt").hidden = true;
+    setEditControlsOpen(false);
+  }
+}
+
+function setEditControlsOpen(open) {
+  const expanded = Boolean(open);
+  const controls = $("#edit-controls");
+  const cluster = $(".deck-control-cluster");
+  if (expanded) {
+    controls.hidden = false;
+    controls.inert = false;
+    controls.setAttribute("aria-hidden", "false");
+    const gap = Number.parseFloat(getComputedStyle(cluster).getPropertyValue("--edit-controls-gap")) || 8;
+    cluster.style.setProperty("--edit-controls-shift", `${(controls.offsetWidth + gap) / 2}px`);
+    controls.getBoundingClientRect();
+  } else {
+    controls.inert = true;
+    controls.setAttribute("aria-hidden", "true");
+  }
+  $("#edit-toggle").setAttribute("aria-expanded", String(expanded));
+  $("#edit-toggle").classList.toggle("is-active", expanded);
+  cluster.classList.toggle("is-edit-open", expanded);
+  if (!expanded) historyController?.close();
+}
+
+function syncPdfExport(enabled = !document.body.classList.contains("has-layout-diagnostics")) {
+  const button = $("#export-pdf");
+  button.disabled = !enabled;
+  button.title = enabled ? "Export PDF" : "Turn off layout diagnostics before exporting PDF";
 }
 
 function showError(error) {
@@ -306,6 +355,7 @@ function offerResume(index) {
 function deckState(state, session, manager) {
   return {
     onSourceMarkdownChange: state.onSourceMarkdownChange,
+    onAssetsChange: state.onAssetsChange,
     session,
     index: presentation.index,
     keepDeckVisible: true,
@@ -374,6 +424,7 @@ async function loadDeck(repository, source, label, state = {}) {
       stage: $("#stage"),
       counter: $("#slide-number"),
       progress: $("#progress"),
+      onExit: leavePresentation,
       onIndexChange: (index) => {
         updateSlideHash(index);
         outline?.setActive(index);
@@ -450,6 +501,7 @@ async function loadDeck(repository, source, label, state = {}) {
         session.annotationState,
       );
       session.applyMarkdown(result.markdown, result.annotationState, "Add image");
+      state.onAssetsChange?.(await deckRepository.serializedAssets());
       state.onSourceMarkdownChange?.(session.markdown);
       await loadDeck(deckRepository, source, label, deckState(state, session, manager));
     };
@@ -645,6 +697,7 @@ async function checkPastedMarkdown({ present = false, fromLink = false } = {}) {
         markdown,
         assetManager: validation.manager,
         onSourceMarkdownChange: savePastedMarkdown,
+        onAssetsChange: savePastedAssets,
         positionKey: positionStorageKey("paste"),
         copySlideLink: (index) => pastedSlideUrl(location.href, index),
         fromLink,
@@ -653,8 +706,8 @@ async function checkPastedMarkdown({ present = false, fromLink = false } = {}) {
     return true;
   }
   clearPasteValidation();
-  const repository = new InlineRepository(markdown);
   const source = { path: "slides.md" };
+  const repository = new WorkingRepository(new InlineRepository(markdown), source, pastedAssets);
   const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
   setAssetStatus($("#paste-status"), "Checking referenced items…", "checking");
   try {
@@ -677,6 +730,7 @@ async function checkPastedMarkdown({ present = false, fromLink = false } = {}) {
       markdown,
       assetManager: manager,
       onSourceMarkdownChange: savePastedMarkdown,
+      onAssetsChange: savePastedAssets,
       positionKey: positionStorageKey("paste"),
       copySlideLink: (index) => pastedSlideUrl(location.href, index),
       fromLink,
@@ -706,6 +760,7 @@ $("#markdown-input").addEventListener("input", () => {
 });
 $("#reset-example").addEventListener("click", () => {
   resetExampleMarkdown();
+  pastedAssets = [];
   $("#markdown-input").value = SAMPLE;
   syncExampleResetButton();
   clearPasteValidation();
@@ -732,13 +787,20 @@ dropZone.addEventListener("drop", async (event) => {
 
 $("#previous").addEventListener("click", () => presentation?.previous());
 $("#next").addEventListener("click", () => presentation?.next());
-$("#back-home").addEventListener("click", (event) => {
-  event.stopPropagation();
+async function leavePresentation() {
+  if (document.fullscreenElement) await document.exitFullscreen();
   const close = () => { outline?.close(); setScreen("home"); };
   if (annotations) annotations.requestClose(close); else close();
+}
+$("#back-home").addEventListener("click", (event) => {
+  event.stopPropagation();
+  void leavePresentation();
 });
 $("#error-home").addEventListener("click", () => setScreen("home"));
 $("#fullscreen").addEventListener("click", toggleFullscreen);
+$("#edit-toggle").addEventListener("click", () => {
+  setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
+});
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
 $("#add-image").addEventListener("click", () => $("#image-input").click());
 $("#image-input").addEventListener("change", async (event) => {
@@ -748,6 +810,10 @@ $("#image-input").addEventListener("change", async (event) => {
   try { await activeAssetHandler(file); }
   catch (error) { showError(error); }
 });
+document.addEventListener("mdpresent:diagnosticschange", (event) => {
+  syncPdfExport(!event.detail?.enabled);
+});
+syncPdfExport();
 $("#resume-slide").addEventListener("click", () => {
   const index = Number.parseInt($("#resume-prompt").dataset.index || "0", 10);
   $("#resume-prompt").hidden = true;

@@ -62,8 +62,7 @@ export class WorkingRepository {
     let counter = 2;
     const exists = async (path) => {
       if (this.assets.has(path)) return true;
-      try { await this.base.readBlob(path); return true; }
-      catch { return false; }
+      return typeof this.base.hasBlob === "function" ? this.base.hasBlob(path) : false;
     };
     while (await exists(normalizePath(`${directory}assets/${filename}`))) {
       filename = `${stem}-${counter}${extension}`;
