@@ -186,7 +186,7 @@ document.querySelector("#app").innerHTML = `
       </div>
     </main>
     <footer class="home-footer">
-      <span>MarkdownPresent v0.2 · © <a href="https://christianholz.net">Christian Holz</a> 2026 · <a href="https://github.com/christianholz/MarkdownPresent">Source on GitHub</a></span>
+      <span>MarkdownPresent v0.3 · © <a href="https://christianholz.net">Christian Holz</a> 2026 · <a href="https://github.com/christianholz/MarkdownPresent">Source on GitHub</a></span>
     </footer>
   </section>
 

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "MarkdownPresent for GitHub",
   "short_name": "mdpresent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Present Markdown files from eth-siplab-team repositories as slides.",
   "icons": {
     "16": "icons/icon-16.png",
