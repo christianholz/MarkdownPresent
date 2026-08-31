@@ -129,19 +129,9 @@ function groupedTableExtension() {
     name: "groupedTable",
     level: "block",
     start(src) {
-      const capture = src.search(/\{%\s*capture\s+[A-Za-z_][\w-]*\s*%\}/);
-      const direct = src.search(/(?:^|\n)(?:\{:\s*(?:\.[A-Za-z][\w-]*\s*)+\}\s*\n)?\|[^\n]*\|\s*$/m);
-      if (capture < 0) return direct;
-      if (direct < 0) return capture;
-      return Math.min(capture, direct);
+      return src.search(/(?:^|\n)(?:\{:\s*(?:\.[A-Za-z][\w-]*\s*)+\}\s*\n)?\|[^\n]*\|\s*$/m);
     },
     tokenizer(src) {
-      const captured = /^\{%\s*capture\s+([A-Za-z_][\w-]*)\s*%\}\s*\n([\s\S]*?)\n?\{%\s*endcapture\s*%\}\s*\n\{%\s*include\s+grouped_table\.html\s+table\s*=\s*([A-Za-z_][\w-]*)\s*%\}(?:\n|$)/.exec(src);
-      if (captured && captured[1] === captured[3]) {
-        const table = parseGroupedTable(captured[2], this.lexer);
-        if (table) return { type: "groupedTable", raw: captured[0], table };
-      }
-
       const lines = src.split("\n");
       const selected = [];
       let lineCount = 0;
@@ -242,60 +232,9 @@ export function extractFrontMatter(markdown) {
   };
 }
 
-function jekyllReplacements(markdown) {
-  const replacements = [];
-  const collect = (pattern, value) => {
-    for (const match of markdown.matchAll(pattern)) {
-      replacements.push({ start: match.index, end: match.index + match[0].length, value: value(match) });
-    }
-  };
-  collect(/\{\{\s*site\.baseurl\s*\}\}/g, () => "");
-  collect(/\{\{\s*["']([^"']+)["']\s*\|\s*(?:relative_url|absolute_url)\s*\}\}/g, (match) => match[1]);
-  collect(/\{%\s*link\s+([^%]+?)\s*%\}/g, (match) => match[1]);
-  return replacements.sort((left, right) => left.start - right.start || right.end - left.end)
-    .filter((replacement, index, all) => index === 0 || replacement.start >= all[index - 1].end);
-}
-
-export function preprocessJekyllWithMap(markdown) {
-  const source = String(markdown || "");
-  const replacements = jekyllReplacements(source);
-  let text = "";
-  const sourceOffsets = [0];
-  let cursor = 0;
-
-  const appendSource = (start, end) => {
-    for (let index = start; index < end; index += 1) {
-      text += source[index];
-      sourceOffsets.push(index + 1);
-    }
-  };
-
-  for (const replacement of replacements) {
-    appendSource(cursor, replacement.start);
-    if (!replacement.value) {
-      sourceOffsets[sourceOffsets.length - 1] = replacement.end;
-    } else {
-      for (let index = 0; index < replacement.value.length; index += 1) {
-        text += replacement.value[index];
-        const progress = (index + 1) / replacement.value.length;
-        sourceOffsets.push(index === replacement.value.length - 1
-          ? replacement.end
-          : replacement.start + Math.floor((replacement.end - replacement.start) * progress));
-      }
-    }
-    cursor = replacement.end;
-  }
-  appendSource(cursor, source.length);
-  return { text, sourceOffsets };
-}
-
-export function preprocessJekyll(markdown) {
-  return preprocessJekyllWithMap(markdown).text;
-}
-
 export function extractUnsupportedMediaReferences(markdown) {
   const { body } = extractFrontMatter(markdown);
-  const source = preprocessJekyll(body)
+  const source = body
     .replace(/```[\s\S]*?```/g, "")
     .replace(/~~~[\s\S]*?~~~/g, "");
   const references = [];
@@ -363,7 +302,7 @@ export function splitSlideSections(markdown) {
 }
 
 export function splitSlides(markdown) {
-  return splitSlideSections(markdown).map(({ markdown: slideMarkdown }) => preprocessJekyll(slideMarkdown));
+  return splitSlideSections(markdown).map(({ markdown: slideMarkdown }) => slideMarkdown);
 }
 
 function safeHtml(markdown, tocEntries = []) {
@@ -553,13 +492,12 @@ export function processMarkdown(markdown, source) {
     return [{ level: heading[1].length, html, sourceStart: section.sourceStart }];
   });
   const slides = sections.map((section, index) => {
-    const { text: renderedMarkdown, sourceOffsets } = preprocessJekyllWithMap(section.markdown);
     const key = `${index}\u0000${section.sourceStart}\u0000${section.markdown}`;
     if (cache?.has(key)) return cache.get(key);
     const model = slideModelFromHtml(
-      safeHtml(renderedMarkdown, tocEntries),
+      safeHtml(section.markdown, tocEntries),
       section.markdown,
-      sourceOffsets,
+      null,
       section.sourceStart,
       section.sourceEnd,
     );

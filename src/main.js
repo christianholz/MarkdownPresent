@@ -101,15 +101,12 @@ Prioritize findings that are repeated, consequential, and directly connected to 
 
 ## Grouped evidence stays compact
 
-{% capture evidence_table %}
 | Signal | ::2_ Observation | ::2_ Reflection |
 | ^ | First round | Second round | First round | Second round |
 | --- | --- | --- | --- | --- |
 | Orientation | 42 s | 25 s | Uncertain | Clear |
 | Recovery | Assisted | Unaided | Frustrating | Expected |
 | Confidence | 2.8 / 5 | 4.1 / 5 | Mixed | Strong |
-{% endcapture %}
-{% include grouped_table.html table=evidence_table %}
 
 ## Analysis code is highlighted locally
 
@@ -138,7 +135,10 @@ Keep the successful parts stable and change only the interaction under investiga
 
 document.querySelector("#app").innerHTML = `
   <section class="home-screen" data-screen="home">
-    <header class="brand">MarkdownPresent</header>
+    <header class="brand">
+      <img src="/icon.svg" width="28" height="28" alt="" />
+      <span>MarkdownPresent</span>
+    </header>
     <main class="home-main">
       <div class="intro">
         <p class="eyebrow">Markdown → presentation</p>
@@ -831,7 +831,8 @@ async function toggleFullscreen() {
 }
 
 document.addEventListener("keydown", (event) => {
-  if ($(".deck-screen").hidden || event.target.matches("input, textarea, button, [contenteditable='true']")) return;
+  if ($(".deck-screen").hidden || event.target.matches("input, textarea, [contenteditable='true']")) return;
+  if (event.target.matches("button") && ["Enter", " "].includes(event.key)) return;
   const actions = {
     ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),
     ArrowLeft: () => presentation?.previous(), ArrowUp: () => presentation?.previous(), PageUp: () => presentation?.previous(),

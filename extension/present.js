@@ -387,7 +387,8 @@ $("#resume-start").addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if ($(".deck-screen").hidden || event.target.matches("input, textarea, button, [contenteditable='true']")) return;
+  if ($(".deck-screen").hidden || event.target.matches("input, textarea, [contenteditable='true']")) return;
+  if (event.target.matches("button") && ["Enter", " "].includes(event.key)) return;
   const actions = {
     ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),
     ArrowLeft: () => presentation?.previous(), ArrowUp: () => presentation?.previous(), PageUp: () => presentation?.previous(),

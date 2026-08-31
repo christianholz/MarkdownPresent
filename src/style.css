@@ -51,7 +51,8 @@ button { color: inherit; }
 [hidden] { display: none !important; }
 
 .home-screen { min-height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; padding: 24px 34px; background: var(--slide-paper); }
-.brand { color: var(--ink); font-size: 14px; font-weight: 700; letter-spacing: -.025em; }
+.brand { display: flex; align-items: center; gap: 9px; color: var(--ink); font-size: 14px; font-weight: 700; letter-spacing: -.025em; }
+.brand img { display: block; width: 28px; height: 28px; }
 .home-main { display: grid; grid-template-columns: minmax(340px, .78fr) minmax(560px, 1.22fr); gap: clamp(52px, 7vw, 140px); width: min(92vw, 1680px); margin: auto; align-items: center; }
 .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .15em; font-weight: 750; font-size: 12px; }
 .intro h1 { max-width: 630px; margin: 14px 0 22px; font-size: clamp(48px, 6.1vw, 86px); line-height: .94; letter-spacing: -.055em; font-weight: 600; }

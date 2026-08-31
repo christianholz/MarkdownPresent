@@ -20,15 +20,12 @@ The renderer measures the actual figures before deciding where this section wrap
 
 ## Grouped table headers
 
-{% capture evidence_table %}
 | Signal | ::2_ Observation | ::2_ Reflection |
 | ^ | First round | Second round | First round | Second round |
 | --- | --- | --- | --- | --- |
 | Orientation | 42 s | 25 s | Uncertain | Clear |
 | Recovery | Assisted | Unaided | Frustrating | Expected |
 | Confidence | 2.8 / 5 | 4.1 / 5 | Mixed | Strong |
-{% endcapture %}
-{% include grouped_table.html table=evidence_table %}
 
 ## Highlighted code
 

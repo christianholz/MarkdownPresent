@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { extractFrontMatter, extractUnsupportedMediaReferences, preprocessJekyll, splitSlides } from "../src/markdown.js";
+import { extractFrontMatter, extractUnsupportedMediaReferences, splitSlides } from "../src/markdown.js";
 import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
 import { fittedImageStackWidth, SLIDE_SPACING_GLUE, spacingGlueValue } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
@@ -61,10 +61,6 @@ describe("Markdown slide parsing", () => {
 
   it("does not split headings or rules inside fenced code", () => {
     expect(splitSlides("# Demo\n\n```md\n## not a slide\n---\n```\n\n## Real slide")).toHaveLength(2);
-  });
-
-  it("preprocesses common Jekyll references", () => {
-    expect(preprocessJekyll("{{ site.baseurl }}/x {% link assets/y.png %}" )).toBe("/x assets/y.png");
   });
 
   it("flags embedded media types the slide renderer cannot display", () => {

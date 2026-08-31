@@ -3,8 +3,6 @@ node_modules/
 .pnpm-store/
 dist/
 release/
-.jekyll-source/
-_site/
 coverage/
 
 # Local tooling and caches
