@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MarkdownPresent bookmark manager</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./manager.css" />
+  </head>
+  <body>
+    <main class="manager">
+      <header class="page-header">
+        <div class="brand">
+          <img src="../icons/icon-48.png" width="44" height="44" alt="" />
+          <div>
+            <h1>GitHub folder bookmarks</h1>
+            <p>Choose where MarkdownPresent looks for recent files.</p>
+          </div>
+        </div>
+        <button id="find-recent" class="primary" type="button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m20 20-4.2-4.2m1.7-5.05a6.75 6.75 0 1 1-13.5 0 6.75 6.75 0 0 1 13.5 0Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Find recent Markdown
+          <kbd id="shortcut"></kbd>
+        </button>
+      </header>
+
+      <section class="card section-card">
+        <div class="section-heading">
+          <div>
+            <h2>Folders</h2>
+            <p>Bookmark from the toolbar, or add a GitHub repository or folder URL here.</p>
+          </div>
+          <span id="folder-count" class="count">0</span>
+        </div>
+        <form id="add-form" class="add-form">
+          <input id="folder-url" class="field" type="url" required placeholder="https://github.com/owner/repository/tree/main/notes" aria-label="GitHub folder URL" />
+          <button id="add-folder" class="secondary" type="submit">Add folder</button>
+        </form>
+        <div id="add-status" class="status" role="status"></div>
+        <div id="bookmark-list" class="bookmark-list"></div>
+        <div id="empty" class="empty" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h5l1.5 2H19v11H5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          <strong>No folders bookmarked yet</strong>
+          <span>Add one above, or use the extension button while browsing GitHub.</span>
+        </div>
+      </section>
+
+      <section class="card section-card settings-card">
+        <div class="section-heading">
+          <div>
+            <h2>Search</h2>
+            <p>Recent-file scanning uses GitHub's API and stays entirely in this browser.</p>
+          </div>
+        </div>
+        <form id="settings-form" class="settings-form">
+          <label>
+            <span>Look back</span>
+            <span class="inline-field"><input id="days" class="field" type="number" min="1" max="30" value="5" /> days</span>
+          </label>
+          <label>
+            <span>GitHub access token <small>(optional)</small></span>
+            <input id="token" class="field" type="password" autocomplete="off" placeholder="github_pat_…" />
+            <small>Needed for private repositories and useful for higher API limits. Use a fine-grained, read-only token.</small>
+          </label>
+          <div class="settings-actions">
+            <button class="primary" type="submit">Save settings</button>
+            <span id="settings-status" class="status" role="status"></span>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <template id="bookmark-template">
+      <article class="bookmark-row">
+        <span class="folder-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6h5l1.7 2H19.5v10h-15z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></span>
+        <div class="bookmark-copy">
+          <input class="bookmark-label" aria-label="Bookmark name" />
+          <a class="bookmark-location" target="_blank" rel="noreferrer"></a>
+          <span class="bookmark-ref"></span>
+        </div>
+        <button class="quiet open-folder" type="button" title="Open on GitHub" aria-label="Open on GitHub">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5m0-5-8 8M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="danger remove-folder" type="button">Remove</button>
+      </article>
+    </template>
+    <script type="module" src="./manager.js"></script>
+  </body>
+</html>

@@ -1,9 +1,21 @@
 (() => {
   const BUTTON_ATTRIBUTE = "data-mdpresent";
 
+  function linkedSource() {
+    const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    const ref = params.get("mdpresent-ref") || "";
+    const refType = params.get("mdpresent-ref-type") === "tags" ? "tags" : "heads";
+    const path = params.get("mdpresent-path") || "";
+    const pageParts = location.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    if (!ref || !/\.(md|markdown)$/i.test(path) || pageParts.length < 2) return null;
+    return { owner: pageParts[0], repo: pageParts[1], ref, refType, path };
+  }
+
   function sourceFromLocation() {
+    const linked = linkedSource();
+    if (linked) return linked;
     const parts = location.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-    if (parts.length < 5 || parts[0] !== "eth-siplab-team" || !["blob", "tree"].includes(parts[2])) return null;
+    if (parts.length < 5 || !["blob", "tree"].includes(parts[2])) return null;
     const [owner, repo, , ref, ...pathParts] = parts;
     const path = pathParts.join("/");
     if (!/\.(md|markdown)$/i.test(path)) return null;
@@ -38,7 +50,7 @@
   function githubAssetUrl(path, source) {
     const renderedPrefix = `${source.owner}/${source.repo}/raw/`;
     if (path.startsWith(renderedPrefix)) return `https://github.com/${encodePath(path)}`;
-    return `https://github.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/raw/refs/heads/${encodeURIComponent(source.ref)}/${encodePath(path)}`;
+    return `https://github.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}/raw/refs/${source.refType === "tags" ? "tags" : "heads"}/${encodeURIComponent(source.ref)}/${encodePath(path)}`;
   }
 
   function blobAsBase64(blob) {
@@ -51,6 +63,17 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "mdpresent:present-current") {
+      inject();
+      const button = document.querySelector(`[${BUTTON_ATTRIBUTE}] .mdpresent-button`);
+      if (!button) {
+        sendResponse({ ok: false, error: "This page is not a GitHub Markdown file." });
+        return false;
+      }
+      button.click();
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message?.type !== "mdpresent:fetch-asset") return false;
     const current = sourceFromLocation();
     const requested = message.source;

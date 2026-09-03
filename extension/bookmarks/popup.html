@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MarkdownPresent GitHub Bookmarks</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header>
+        <img src="../icons/icon-32.png" width="28" height="28" alt="" />
+        <div>
+          <h1>GitHub folders</h1>
+          <p>MarkdownPresent bookmarks</p>
+        </div>
+      </header>
+
+      <section class="current card">
+        <div class="eyebrow">Current page</div>
+        <strong id="current-title">Checking GitHub…</strong>
+        <span id="current-path" class="muted"></span>
+        <button id="bookmark" class="primary" type="button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.75A1.75 1.75 0 0 1 8.75 3h6.5A1.75 1.75 0 0 1 17 4.75v16l-5-3.15L7 20.75z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          Bookmark this folder
+        </button>
+      </section>
+
+      <nav aria-label="Extension actions">
+        <button id="find-recent" class="menu-row" type="button">
+          <span class="menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 20-4.2-4.2m1.7-5.05a6.75 6.75 0 1 1-13.5 0 6.75 6.75 0 0 1 13.5 0Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+          <span><strong>Find recent Markdown</strong><small>Search all bookmarked folders</small></span>
+          <kbd id="shortcut"></kbd>
+        </button>
+        <button id="manage" class="menu-row" type="button">
+          <span class="menu-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h5l1.5 2H19v11H5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+          <span><strong>Manage bookmarks</strong><small id="bookmark-count">No folders saved</small></span>
+          <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </nav>
+      <div id="status" class="status" role="status"></div>
+    </main>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

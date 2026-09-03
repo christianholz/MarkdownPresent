@@ -12,9 +12,14 @@ export default defineConfig({
     target: "es2022",
     sourcemap: true,
     outDir: outputDirectory,
-    emptyOutDir: false,
+    emptyOutDir: true,
     rollupOptions: {
-      input: fileURLToPath(new URL("./extension/present.html", import.meta.url)),
+      input: {
+        present: fileURLToPath(new URL("./extension/present.html", import.meta.url)),
+        popup: fileURLToPath(new URL("./extension/bookmarks/popup.html", import.meta.url)),
+        manager: fileURLToPath(new URL("./extension/bookmarks/manager.html", import.meta.url)),
+        picker: fileURLToPath(new URL("./extension/bookmarks/picker.html", import.meta.url)),
+      },
     },
   },
 });

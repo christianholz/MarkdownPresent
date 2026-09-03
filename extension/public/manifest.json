@@ -3,24 +3,53 @@
   "name": "MarkdownPresent for GitHub",
   "short_name": "mdpresent",
   "version": "0.3.0",
-  "description": "Present Markdown files from eth-siplab-team repositories as slides.",
+  "description": "Present GitHub Markdown as slides and find recent files in bookmarked folders.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "activeTab"],
   "host_permissions": [
-    "https://github.com/eth-siplab-team/*",
+    "https://github.com/*",
     "https://api.github.com/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "MarkdownPresent",
+    "default_popup": "bookmarks/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "options_ui": {
+    "page": "bookmarks/manager.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "find-recent-markdown": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Find recent Markdown in bookmarked GitHub folders"
+    },
+    "present-current-markdown": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "Present the current GitHub Markdown file"
+    }
   },
   "content_scripts": [
     {
-      "matches": ["https://github.com/eth-siplab-team/*"],
+      "matches": ["https://github.com/*"],
       "css": ["content.css"],
       "js": ["content.js"],
       "run_at": "document_idle"

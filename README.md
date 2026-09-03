@@ -48,7 +48,9 @@ Right-click a heading, paragraph, or list item to edit it in place or add a date
 
 Download the [latest Chrome extension](https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip), extract it, then load the folder from `chrome://extensions` with Developer mode enabled.
 
-The extension adds **Present** on supported GitHub Markdown pages. It can restore local drafts and save Markdown plus newly added images back to GitHub with a fine-grained contents token. It is currently scoped to `eth-siplab-team` repositories.
+The extension adds **Present** on GitHub Markdown pages, bookmarks repository folders, and opens a keyboard-searchable list of their recently changed Markdown files. Use `Cmd/Ctrl+Shift+P` to present the current Markdown file and `Cmd/Ctrl+Shift+Y` to find recent Markdown. Private repositories require a read-only GitHub token in the bookmark manager.
+
+It can also restore local drafts and save Markdown plus newly added images back to GitHub.
 
 ## Development
 
