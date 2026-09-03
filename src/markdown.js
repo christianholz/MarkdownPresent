@@ -404,21 +404,67 @@ function hasMeaningfulSlideContent(fragment) {
   return Boolean(fragment.querySelector("table, ul, ol, pre, blockquote, hr, math, .math-display"));
 }
 
+function imageSourceRanges(markdown) {
+  const ranges = [];
+
+  const visitChildren = (children, parentRaw, parentStart) => {
+    let cursor = 0;
+    for (const child of children || []) {
+      if (!child?.raw) continue;
+      let localStart = parentRaw.indexOf(child.raw, cursor);
+      if (localStart < 0) localStart = parentRaw.indexOf(child.raw);
+      if (localStart < 0) continue;
+      visitToken(child, parentStart + localStart);
+      cursor = localStart + child.raw.length;
+    }
+  };
+
+  const visitToken = (token, start) => {
+    if (token.type === "image") ranges.push({ start, end: start + token.raw.length });
+    if (token.type === "html") {
+      for (const match of token.raw.matchAll(/<img\b[^>]*>/gi)) {
+        ranges.push({ start: start + match.index, end: start + match.index + match[0].length });
+      }
+    }
+    visitChildren(token.tokens, token.raw, start);
+    visitChildren(token.items, token.raw, start);
+  };
+
+  const tokens = marked.lexer(markdown);
+  let cursor = 0;
+  for (const token of tokens) {
+    if (!token.raw) continue;
+    const start = markdown.indexOf(token.raw, cursor);
+    if (start < 0) continue;
+    visitToken(token, start);
+    cursor = start + token.raw.length;
+  }
+  return ranges.sort((left, right) => left.start - right.start);
+}
+
 function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceStart = null, sourceEnd = null) {
   const template = document.createElement("template");
   template.innerHTML = html;
   if (markdown) annotateSourceRanges(template.content, markdown, sourceOffsets);
   const title = extractTitle(template.content);
   const images = [];
+  const sourceRanges = markdown ? imageSourceRanges(markdown) : [];
+  let sourceRangeIndex = 0;
   const imageParents = new Set();
   for (const image of template.content.querySelectorAll("img")) {
     const src = image.getAttribute("src") || "";
     const alt = image.getAttribute("alt") || "";
+    const range = sourceRanges[sourceRangeIndex++];
     if (image.parentElement) imageParents.add(image.parentElement);
     image.removeAttribute("src");
     image.removeAttribute("srcset");
     image.remove();
-    images.push({ src, alt });
+    images.push({
+      src,
+      alt,
+      sourceStart: range ? (sourceOffsets?.[range.start] ?? range.start) : null,
+      sourceEnd: range ? (sourceOffsets?.[range.end] ?? range.end) : null,
+    });
   }
   for (const parent of imageParents) {
     if (!parent.textContent.trim() && !parent.children.length) parent.remove();

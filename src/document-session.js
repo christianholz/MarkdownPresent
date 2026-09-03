@@ -19,6 +19,13 @@ function statesEqual(left, right) {
     && JSON.stringify(left.comments) === JSON.stringify(right.comments);
 }
 
+function historyLocation(location = null) {
+  if (!location) return null;
+  const slideIndex = Number.isInteger(location.slideIndex) ? location.slideIndex : null;
+  const sourceStart = Number.isInteger(location.sourceStart) ? location.sourceStart : null;
+  return slideIndex === null && sourceStart === null ? null : { slideIndex, sourceStart };
+}
+
 export class DocumentSession {
   constructor({ markdown = "", originalMarkdown, annotationState = {}, source = null, sourcePath = "presentation.md" } = {}) {
     this.markdown = normalizeMarkdownSource(markdown);
@@ -62,24 +69,24 @@ export class DocumentSession {
     return snapshot;
   }
 
-  applyMarkdown(markdown, annotationState = {}, label = "Edit content") {
+  applyMarkdown(markdown, annotationState = {}, label = "Edit content", location = null) {
     const next = {
       markdown: normalizeMarkdownSource(markdown),
       comments: Array.isArray(annotationState.comments) ? copyComments(annotationState.comments) : copyComments(this.comments),
       revision: Number.isInteger(annotationState.revision) ? annotationState.revision : this.revision,
       editCount: Number.isInteger(annotationState.editCount) ? annotationState.editCount : this.editCount + 1,
     };
-    return this.commit(label, next);
+    return this.commit(label, next, location);
   }
 
-  captureAnnotationState(state = {}, label = null) {
+  captureAnnotationState(state = {}, label = null, location = null) {
     const next = {
       markdown: typeof state.markdown === "string" ? normalizeMarkdownSource(state.markdown) : this.markdown,
       comments: Array.isArray(state.comments) ? copyComments(state.comments) : copyComments(this.comments),
       revision: Number.isInteger(state.revision) ? state.revision : this.revision,
       editCount: Number.isInteger(state.editCount) ? state.editCount : this.editCount,
     };
-    if (label && !statesEqual(documentState(this), next)) return this.commit(label, next);
+    if (label && !statesEqual(documentState(this), next)) return this.commit(label, next, location);
     this.applyDocumentState(next);
     if (Number.isInteger(state.savedRevision)) this.savedRevision = state.savedRevision;
     if (typeof state.originalSourceMarkdown === "string") {
@@ -89,7 +96,7 @@ export class DocumentSession {
     return this.notify("sync");
   }
 
-  commit(label, state) {
+  commit(label, state, location = null) {
     if (statesEqual(documentState(this), state)) return this.snapshot();
     this.applyDocumentState(state);
     this.history.splice(this.historyIndex + 1);
@@ -98,6 +105,7 @@ export class DocumentSession {
       label: String(label || "Edit content"),
       at: Date.now(),
       state: documentState(this),
+      location: historyLocation(location),
     });
     if (this.history.length > 100) this.history.shift();
     this.historyIndex = this.history.length - 1;
@@ -125,6 +133,12 @@ export class DocumentSession {
 
   redo() {
     return this.canRedo ? this.restoreHistory(this.historyIndex + 1) : this.snapshot();
+  }
+
+  stepLocation(direction) {
+    const index = direction === "undo" ? this.historyIndex : this.historyIndex + 1;
+    const location = this.history[index]?.location;
+    return location ? { ...location } : null;
   }
 
   get historyEntries() {

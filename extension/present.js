@@ -8,7 +8,7 @@ import { SlideOutline } from "../src/slide-outline.js";
 import { AnnotationManager } from "../src/annotations.js";
 import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
 import { DocumentSession } from "../src/document-session.js";
-import { HistoryController } from "../src/history.js";
+import { HistoryController, resolveHistorySlide } from "../src/history.js";
 import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresentationPosition } from "../src/positions.js";
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "../src/asset-workspace.js";
 import { exportPresentationPdf } from "../src/pdf-export.js";
@@ -254,7 +254,7 @@ async function boot() {
         annotationState: session.annotationState,
         discardLabel: "Leave tab without saving",
         onStateChange: originalMarkdown ? (state, details = {}) => {
-          session.captureAnnotationState(state, details.historyLabel);
+          session.captureAnnotationState(state, details.historyLabel, details);
           return persistDraft(state);
         } : undefined,
         onDiscard: originalMarkdown ? discardDraft : undefined,
@@ -291,7 +291,7 @@ async function boot() {
         }),
         onMarkdownChange: originalMarkdown
           ? (nextMarkdown, details = {}) => {
-            session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel);
+            session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel, details);
             return renderDeck(presentation.index, true);
           }
           : undefined,
@@ -306,12 +306,17 @@ async function boot() {
         close: $("#history-close"),
         undo: $("#undo"),
         redo: $("#redo"),
+        currentSlide: () => presentation?.atEnd ? null : presentation?.index,
+        resolveSlide: (location) => resolveHistorySlide(presentation, location),
+        showSlide: (index) => presentation?.show(index),
       });
       historyController.setSession(session, async (restoredSession) => {
         await persistDraft(restoredSession.snapshot());
         return renderDeck(presentation.index, true);
       });
       activeAssetHandler = originalMarkdown ? async (file) => {
+        const slideIndex = presentation.index;
+        const sourceStart = presentation.slides[slideIndex]?.model.sourceEnd;
         const asset = await repository.addFile(file);
         const result = insertImageIntoSlide(
           session.markdown,
@@ -319,7 +324,7 @@ async function boot() {
           asset,
           session.annotationState,
         );
-        session.applyMarkdown(result.markdown, result.annotationState, "Add image");
+        session.applyMarkdown(result.markdown, result.annotationState, "Add image", { slideIndex, sourceStart });
         await persistDraft(session.snapshot());
         await renderDeck(presentation.index, true);
       } : null;
@@ -365,13 +370,19 @@ $("#edit-toggle").addEventListener("click", () => {
   setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
 });
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
-$("#add-image").addEventListener("click", () => $("#image-input").click());
+const addImageButton = $("#add-image");
+addImageButton.addEventListener("pointerleave", () => addImageButton.classList.remove("is-hover-suppressed"));
+addImageButton.addEventListener("click", (event) => {
+  if (event.detail > 0) addImageButton.classList.add("is-hover-suppressed");
+  $("#image-input").click();
+});
 $("#image-input").addEventListener("change", async (event) => {
   const [file] = event.target.files;
   event.target.value = "";
   if (!file || !activeAssetHandler) return;
   try { await activeAssetHandler(file); }
   catch (error) { showError(error); }
+  finally { if (addImageButton.classList.contains("is-hover-suppressed")) addImageButton.blur(); }
 });
 document.addEventListener("mdpresent:diagnosticschange", (event) => {
   syncPdfExport(!event.detail?.enabled);

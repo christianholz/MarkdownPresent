@@ -1,5 +1,6 @@
 const ATOMIC_INLINE_SELECTOR = "a, strong, em, code, .katex";
 const EDITABLE_SOURCE_SELECTOR = "h1[data-source-start], h2[data-source-start], h3[data-source-start], h4[data-source-start], h5[data-source-start], h6[data-source-start], p[data-source-start], li[data-source-start]";
+const INSERTION_SOURCE_SELECTOR = `${EDITABLE_SOURCE_SELECTOR}, .image-slot[data-source-start][data-source-end]`;
 const WORD_PATTERN = /[\p{L}\p{N}](?:[\p{L}\p{N}\p{M}'’\-]*[\p{L}\p{N}\p{M}])?/gu;
 const TRAILING_PUNCTUATION = /[.,;:!?…\)\]\}”’]/;
 
@@ -24,6 +25,44 @@ function distanceToRect(x, y, rect) {
   const dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
   const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0;
   return Math.hypot(dx, dy);
+}
+
+function distanceToHorizontalEdge(x, y, rect, edgeY) {
+  const dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
+  return Math.hypot(dx, y - edgeY);
+}
+
+function nearestTextInsertion(slide, clientX, clientY, slideMarkdown) {
+  const candidates = [...slide.querySelectorAll(INSERTION_SOURCE_SELECTOR)]
+    .map((element) => ({
+      element,
+      start: Number(element.dataset.sourceStart),
+      end: Number(element.dataset.sourceEnd),
+      rect: element.getBoundingClientRect(),
+    }))
+    .filter(({ start, end, rect }) => Number.isInteger(start) && Number.isInteger(end)
+      && start >= 0 && end >= start && end <= slideMarkdown.length && rect.width && rect.height);
+  if (!candidates.length) return { offset: slideMarkdown.length, placement: "after", reference: null };
+
+  const boundaries = [];
+  for (const candidate of candidates) {
+    // Text before an h1/h2 would fall outside the slide it was added from.
+    if (!candidate.element.matches("h1, h2")) {
+      boundaries.push({
+        offset: candidate.start,
+        placement: "before",
+        reference: candidate.element,
+        distance: distanceToHorizontalEdge(clientX, clientY, candidate.rect, candidate.rect.top),
+      });
+    }
+    boundaries.push({
+      offset: candidate.end,
+      placement: "after",
+      reference: candidate.element,
+      distance: distanceToHorizontalEdge(clientX, clientY, candidate.rect, candidate.rect.bottom),
+    });
+  }
+  return boundaries.sort((left, right) => left.distance - right.distance)[0];
 }
 
 function outerAtomicInline(node, slide) {
@@ -302,6 +341,14 @@ function trailingWhitespace(markdown) {
   return /\s*$/.exec(markdown)?.[0] || "";
 }
 
+function insertedBlockMarkdown(slideMarkdown, offset, block) {
+  const before = slideMarkdown.slice(0, offset);
+  const after = slideMarkdown.slice(offset);
+  const prefix = !before || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const suffix = !after || after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+  return `${prefix}${block}${suffix}`;
+}
+
 function directListItemMarkdown(element) {
   return [...element.childNodes]
     .filter((node) => node.nodeType !== Node.ELEMENT_NODE || !node.matches("ul, ol, [data-generated-label]"))
@@ -516,6 +563,11 @@ export class AnnotationManager {
     this.dismissMenus();
     const slideIndex = this.presentation.slides.findIndex(({ element }) => element === slide);
     const slideMarkdown = this.presentation.slides[slideIndex]?.model.markdown || "";
+    const imageSlot = event.target.closest?.(".image-slot[data-source-start][data-source-end]");
+    const imageStart = Number(imageSlot?.dataset.sourceStart);
+    const imageEnd = Number(imageSlot?.dataset.sourceEnd);
+    const clickedSourceElement = event.target.closest?.(INSERTION_SOURCE_SELECTOR);
+    const isWhitespace = !clickedSourceElement || !slide.contains(clickedSourceElement);
     this.pendingAnchor = {
       slide,
       slideIndex,
@@ -523,6 +575,12 @@ export class AnnotationManager {
       clientY: event.clientY,
       anchor: nearestTextAnchor(slide, event.clientX, event.clientY),
       editElement: sourceElementAt(event.target, slide, slideMarkdown),
+      textInsertion: isWhitespace ? nearestTextInsertion(slide, event.clientX, event.clientY, slideMarkdown) : null,
+      imageRange: imageSlot && slide.contains(imageSlot)
+        && Number.isInteger(imageStart) && Number.isInteger(imageEnd)
+        && imageStart >= 0 && imageEnd > imageStart && imageEnd <= slideMarkdown.length
+        ? { start: imageStart, end: imageEnd }
+        : null,
     };
     this.openContextMenu();
   }
@@ -541,6 +599,21 @@ export class AnnotationManager {
         event.stopPropagation();
         menu.remove();
         this.startInlineEditing();
+      }]);
+    }
+    if (this.onMarkdownChange && slideStart >= 0 && slideMarkdown && this.pendingAnchor.imageRange) {
+      actions.push(["Remove image", (event) => {
+        event.stopPropagation();
+        menu.remove();
+        void this.removePendingImage();
+      }]);
+    }
+    if (this.onMarkdownChange && slideStart >= 0 && slideMarkdown && this.pendingAnchor.textInsertion
+      && this.deck.querySelector(".deck-control-cluster.is-edit-open")) {
+      actions.push(["Add text", (event) => {
+        event.stopPropagation();
+        menu.remove();
+        this.startTextInsertion();
       }]);
     }
     actions.push(["Add comment", (event) => {
@@ -575,6 +648,87 @@ export class AnnotationManager {
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
     menu.querySelector("button")?.focus({ preventScroll: true });
+  }
+
+  async removePendingImage() {
+    const pending = this.pendingAnchor;
+    const slideStart = this.slideStarts[pending?.slideIndex];
+    const localStart = pending?.imageRange?.start;
+    const localEnd = pending?.imageRange?.end;
+    if (!this.onMarkdownChange || slideStart < 0 || !Number.isInteger(localStart) || !Number.isInteger(localEnd)) return;
+
+    const absoluteStart = slideStart + localStart;
+    const absoluteEnd = slideStart + localEnd;
+    const original = this.sourceMarkdown.slice(absoluteStart, absoluteEnd);
+    if (!original || absoluteEnd > this.sourceMarkdown.length) return;
+
+    const markdown = replaceMarkdownRange(this.sourceMarkdown, absoluteStart, absoluteEnd, "");
+    const comments = remapCommentOffsets(this.comments.map(commentSnapshot), absoluteStart, absoluteEnd, original, "");
+    const editCount = markdown === this.originalSourceMarkdown ? 0 : this.editCount + 1;
+    this.pendingAnchor = null;
+    await this.onMarkdownChange(markdown, {
+      historyLabel: "Remove image",
+      slideIndex: pending.slideIndex,
+      sourceStart: absoluteStart,
+      annotationState: {
+        comments,
+        revision: this.revision,
+        savedRevision: this.savedRevision,
+        editCount,
+        originalSourceMarkdown: this.originalSourceMarkdown,
+      },
+    });
+  }
+
+  startTextInsertion() {
+    const { slide, slideIndex, textInsertion } = this.pendingAnchor || {};
+    const slideStart = this.slideStarts[slideIndex];
+    const slideMarkdown = this.presentation.slides[slideIndex]?.model.markdown || "";
+    const localOffset = textInsertion?.offset;
+    if (!slide || slideStart < 0 || !slideMarkdown || !Number.isInteger(localOffset)) return;
+
+    let copy = slide.querySelector(".slide-copy");
+    let transientCopy = null;
+    if (!copy) {
+      copy = document.createElement("div");
+      copy.className = "slide-copy markdown-body is-transient-copy";
+      slide.querySelector(".slide-body")?.prepend(copy);
+      slide.classList.add("is-adding-text");
+      transientCopy = copy;
+    }
+
+    const element = document.createElement("p");
+    element.append(document.createElement("br"));
+    const next = [...copy.children].find((child) => {
+      const start = Number(child.dataset.sourceStart);
+      return Number.isInteger(start) && start >= localOffset;
+    });
+    copy.insertBefore(element, next || null);
+    this.inlineEdit = {
+      element,
+      createdItems: [],
+      handlers: new Map(),
+      slideIndex,
+      slideStart,
+      localStart: localOffset,
+      localEnd: localOffset,
+      originalHtml: element.innerHTML,
+      originalMarkdown: "",
+      originalAriaLabel: null,
+      inserting: true,
+      transientElement: element,
+      transientCopy,
+      committing: false,
+    };
+    this.activateInlineElement(element);
+    element.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.setStart(element, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    this.presentation.fitCurrent();
   }
 
   startInlineEditing() {
@@ -738,15 +892,24 @@ export class AnnotationManager {
     }
   }
 
+  removeTransientInlineEdit(edit) {
+    const slide = edit?.element?.closest(".slide") || edit?.transientCopy?.closest(".slide");
+    slide?.classList.remove("is-adding-text");
+    edit?.transientElement?.remove();
+    edit?.transientCopy?.remove();
+  }
+
   cancelInlineEditing() {
     const edit = this.inlineEdit;
     if (!edit || edit.committing) return;
     edit.element.innerHTML = edit.originalHtml;
     this.finishInlineEditing();
     edit.createdItems.forEach((item) => item.remove());
+    this.removeTransientInlineEdit(edit);
     this.inlineEdit = null;
     this.pendingAnchor = null;
     this.rebuildCommentMarkers();
+    this.presentation.fitCurrent();
   }
 
   async commitInlineEditing({ indentTarget = null } = {}) {
@@ -755,6 +918,7 @@ export class AnnotationManager {
     this.unlockInlineNestedLists();
     if (edit.element.innerHTML === edit.originalHtml && !edit.createdItems.length && indentTarget === null) {
       this.finishInlineEditing();
+      this.removeTransientInlineEdit(edit);
       this.inlineEdit = null;
       this.pendingAnchor = null;
       return;
@@ -764,12 +928,27 @@ export class AnnotationManager {
       let replacement = edit.element.matches("li")
         ? editedListItemsMarkdown(edit.element, edit.createdItems, edit.originalMarkdown)
         : editedElementMarkdown(edit.element, edit.originalMarkdown);
+      if (edit.inserting && !replacement) {
+        this.finishInlineEditing();
+        this.removeTransientInlineEdit(edit);
+        this.inlineEdit = null;
+        this.pendingAnchor = null;
+        this.presentation.fitCurrent();
+        return;
+      }
       if (indentTarget !== null && replacement) {
         const currentIndent = listMarkerAt(edit.originalMarkdown, 0)?.indent ?? 0;
         replacement = shiftedListMarkdown(replacement, currentIndent, indentTarget);
       }
       const absoluteStart = edit.slideStart + edit.localStart;
       const absoluteEnd = edit.slideStart + edit.localEnd;
+      if (edit.inserting) {
+        replacement = insertedBlockMarkdown(
+          this.presentation.slides[edit.slideIndex]?.model.markdown || "",
+          edit.localStart,
+          replacement,
+        );
+      }
       const markdown = replaceMarkdownRange(this.sourceMarkdown, absoluteStart, absoluteEnd, replacement);
       const comments = remapCommentOffsets(this.comments.map(commentSnapshot), absoluteStart, absoluteEnd, edit.originalMarkdown, replacement);
       const editCount = markdown === this.originalSourceMarkdown
@@ -777,7 +956,9 @@ export class AnnotationManager {
         : this.editCount + (markdown === this.sourceMarkdown ? 0 : 1);
       this.finishInlineEditing();
       await this.onMarkdownChange(markdown, {
-        historyLabel: indentTarget !== null
+        historyLabel: edit.inserting
+          ? "Add text"
+          : indentTarget !== null
           ? (indentTarget > (listMarkerAt(edit.originalMarkdown, 0)?.indent ?? 0) ? "Indent list item" : "Outdent list item")
           : edit.createdItems.length
             ? "Add list item"
@@ -877,7 +1058,7 @@ export class AnnotationManager {
     comment.marker = marker;
     this.comments.push(comment);
     this.revision += 1;
-    this.syncDownloadButton({ historyLabel: "Add comment" });
+    this.syncDownloadButton({ historyLabel: "Add comment", slideIndex, sourceStart: sourceOffset });
     this.presentation.fitCurrent();
     this.pendingAnchor = null;
   }

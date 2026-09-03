@@ -2,8 +2,30 @@ function timeLabel(timestamp) {
   return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(timestamp);
 }
 
+function pause(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+export function resolveHistorySlide(presentation, location) {
+  if (!presentation?.slides.length || !location) return null;
+  const fallback = Number.isInteger(location.slideIndex)
+    ? Math.max(0, Math.min(location.slideIndex, presentation.slides.length - 1))
+    : null;
+  if (!Number.isInteger(location.sourceStart)) return fallback;
+  const matches = presentation.slides
+    .map(({ model }, index) => ({ model, index }))
+    .filter(({ model }) => Number.isInteger(model.sourceStart) && Number.isInteger(model.sourceEnd)
+      && location.sourceStart >= model.sourceStart && location.sourceStart <= model.sourceEnd)
+    .map(({ index }) => index);
+  if (!matches.length) return fallback;
+  if (fallback === null) return matches[0];
+  return matches.reduce((nearest, index) => (
+    Math.abs(index - fallback) < Math.abs(nearest - fallback) ? index : nearest
+  ), matches[0]);
+}
+
 export class HistoryController {
-  constructor({ panel, list, toggle, close, undo, redo, onRestore }) {
+  constructor({ panel, list, toggle, close, undo, redo, onRestore, currentSlide, resolveSlide, showSlide }) {
     this.panel = panel;
     this.list = list;
     this.toggle = toggle;
@@ -11,6 +33,9 @@ export class HistoryController {
     this.undoButton = undo;
     this.redoButton = redo;
     this.onRestore = onRestore;
+    this.currentSlide = currentSlide;
+    this.resolveSlide = resolveSlide;
+    this.showSlide = showSlide;
     this.session = null;
     this.unsubscribe = null;
     this.restoring = false;
@@ -37,8 +62,23 @@ export class HistoryController {
 
   async step(direction) {
     if (!this.session || this.restoring || !this.session[direction === "undo" ? "canUndo" : "canRedo"]) return;
-    this.session[direction]();
-    await this.restore();
+    this.restoring = true;
+    this.render();
+    try {
+      const location = this.session.stepLocation(direction);
+      const target = this.resolveSlide?.(location);
+      const shouldNavigate = Number.isInteger(target) && target !== this.currentSlide?.();
+      if (shouldNavigate) {
+        await this.showSlide?.(target);
+        await pause(300);
+      }
+      this.session[direction]();
+      this.render();
+      await this.onRestore?.(this.session);
+    } finally {
+      this.restoring = false;
+      this.render();
+    }
   }
 
   async restore(index = null) {

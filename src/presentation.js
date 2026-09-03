@@ -391,7 +391,7 @@ export class Presentation {
     this.endScreen.hidden = true;
     this.endScreen.tabIndex = 0;
     this.endScreen.setAttribute("role", "button");
-    this.endScreen.setAttribute("aria-label", "End of slide show, click to exit.");
+    this.endScreen.setAttribute("aria-label", "End of slide show, click or press Escape to exit.");
     this.endScreen.textContent = "End of slide show, click to exit.";
     this.assetManager = null;
     this.paginationCache = new Map();
@@ -442,6 +442,12 @@ export class Presentation {
       }
     };
     this.handleDocumentKeydown = (event) => {
+      if (event.key === "Escape" && this.atEnd) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.exitEndScreen();
+        return;
+      }
       if (event.key === "Escape" && this.imagePopover) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -809,6 +815,11 @@ function documentFragmentFrom(model, index) {
       slot.className = "image-slot";
       slot.dataset.imageSrc = image.src;
       slot.dataset.imageAlt = image.alt;
+      if (Number.isInteger(image.sourceStart) && Number.isInteger(image.sourceEnd)) {
+        slot.dataset.sourceStart = String(image.sourceStart);
+        slot.dataset.sourceEnd = String(image.sourceEnd);
+        slot.dataset.sourceKind = "image";
+      }
       slot.innerHTML = '<span class="image-loading">Loading image…</span>';
       media.append(slot);
     }

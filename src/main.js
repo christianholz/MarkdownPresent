@@ -14,7 +14,7 @@ import {
   resetExampleMarkdown,
 } from "./example-storage.js";
 import { DocumentSession } from "./document-session.js";
-import { HistoryController } from "./history.js";
+import { HistoryController, resolveHistorySlide } from "./history.js";
 import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "./asset-workspace.js";
 import { exportPresentationPdf } from "./pdf-export.js";
 import { LayoutDiagnostics } from "./diagnostics.js";
@@ -264,6 +264,10 @@ let diagnostics;
 let selectedFiles = [];
 let markdownFiles = [];
 let pastedAssets = readExampleAssets();
+const HISTORY_SCREEN_KEY = "mdpresentScreen";
+let presentationHistoryActive = false;
+let allowHistoryExit = false;
+let restorePresentationForClose = false;
 
 $("#markdown-input").value = readExampleMarkdown(SAMPLE);
 
@@ -326,10 +330,41 @@ function showError(error) {
 
 function readHash() { return new URLSearchParams(location.hash.slice(1)); }
 function slideFromHash() { return Math.max(0, Number.parseInt(readHash().get("slide") || "1", 10) - 1); }
+function historyState(screen) {
+  const current = history.state && typeof history.state === "object" ? history.state : {};
+  return { ...current, [HISTORY_SCREEN_KEY]: screen };
+}
+function pageUrl() { return `${location.pathname}${location.search}`; }
 function updateSlideHash(index) {
   const hash = readHash();
   hash.set("slide", String(index + 1));
-  history.replaceState(null, "", `#${hash}`);
+  history.replaceState(historyState("presentation"), "", `#${hash}`);
+}
+function clearPresentationHash() {
+  history.replaceState(historyState("home"), "", pageUrl());
+}
+function beginPresentationHistory(fromLink = false) {
+  if (presentationHistoryActive) return;
+  const linkedHash = fromLink ? location.hash : "";
+  history.replaceState(historyState("home"), "", pageUrl());
+  history.pushState(historyState("presentation"), "", `${pageUrl()}${linkedHash}`);
+  presentationHistoryActive = true;
+}
+function finishPresentationExit() {
+  presentationHistoryActive = false;
+  allowHistoryExit = false;
+  restorePresentationForClose = false;
+  outline?.close();
+  setScreen("home");
+}
+function navigateHomeFromPresentation() {
+  if (presentationHistoryActive && history.state?.[HISTORY_SCREEN_KEY] === "presentation") {
+    allowHistoryExit = true;
+    history.back();
+  } else {
+    clearPresentationHash();
+    finishPresentationExit();
+  }
 }
 
 async function copyText(text) {
@@ -395,7 +430,10 @@ function setAssetStatus(element, message, state = "") {
 }
 
 async function loadDeck(repository, source, label, state = {}) {
-  if (!state.keepDeckVisible) setScreen("loading");
+  if (!state.keepDeckVisible) {
+    beginPresentationHistory(Boolean(state.fromLink));
+    setScreen("loading");
+  }
   try {
     const deckRepository = repository instanceof WorkingRepository
       ? repository
@@ -452,11 +490,11 @@ async function loadDeck(repository, source, label, state = {}) {
       annotationState: session.annotationState,
       discardLabel: "Return without saving",
       onMarkdownChange: (nextMarkdown, details = {}) => {
-        session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel);
+        session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel, details);
         state.onSourceMarkdownChange?.(nextMarkdown);
         return loadDeck(deckRepository, source, label, deckState(state, session, manager));
       },
-      onStateChange: (nextState, details = {}) => session.captureAnnotationState(nextState, details.historyLabel),
+      onStateChange: (nextState, details = {}) => session.captureAnnotationState(nextState, details.historyLabel, details),
       onDownloadWorkspace: () => downloadDeckWorkspace({
         repository: deckRepository,
         source,
@@ -484,6 +522,9 @@ async function loadDeck(repository, source, label, state = {}) {
       close: $("#history-close"),
       undo: $("#undo"),
       redo: $("#redo"),
+      currentSlide: () => presentation?.atEnd ? null : presentation?.index,
+      resolveSlide: (location) => resolveHistorySlide(presentation, location),
+      showSlide: (index) => presentation?.show(index),
     });
     historyController.setSession(session, async (restoredSession) => {
       state.onSourceMarkdownChange?.(restoredSession.markdown);
@@ -493,6 +534,8 @@ async function loadDeck(repository, source, label, state = {}) {
     activePositionKey = state.positionKey || null;
     activeCopySlideLink = state.copySlideLink || null;
     activeAssetHandler = async (file) => {
+      const slideIndex = presentation.index;
+      const sourceStart = presentation.slides[slideIndex]?.model.sourceEnd;
       const asset = await deckRepository.addFile(file);
       const result = insertImageIntoSlide(
         session.markdown,
@@ -500,7 +543,7 @@ async function loadDeck(repository, source, label, state = {}) {
         asset,
         session.annotationState,
       );
-      session.applyMarkdown(result.markdown, result.annotationState, "Add image");
+      session.applyMarkdown(result.markdown, result.annotationState, "Add image", { slideIndex, sourceStart });
       state.onAssetsChange?.(await deckRepository.serializedAssets());
       state.onSourceMarkdownChange?.(session.markdown);
       await loadDeck(deckRepository, source, label, deckState(state, session, manager));
@@ -789,26 +832,56 @@ $("#previous").addEventListener("click", () => presentation?.previous());
 $("#next").addEventListener("click", () => presentation?.next());
 async function leavePresentation() {
   if (document.fullscreenElement) await document.exitFullscreen();
-  const close = () => { outline?.close(); setScreen("home"); };
-  if (annotations) annotations.requestClose(close); else close();
+  if (annotations) annotations.requestClose(navigateHomeFromPresentation);
+  else navigateHomeFromPresentation();
 }
 $("#back-home").addEventListener("click", (event) => {
   event.stopPropagation();
   void leavePresentation();
 });
-$("#error-home").addEventListener("click", () => setScreen("home"));
+$("#error-home").addEventListener("click", navigateHomeFromPresentation);
+window.addEventListener("popstate", (event) => {
+  const screen = event.state?.[HISTORY_SCREEN_KEY];
+  if (screen === "presentation") {
+    presentationHistoryActive = true;
+    setScreen("deck");
+    void presentation?.show(slideFromHash());
+    if (restorePresentationForClose) {
+      restorePresentationForClose = false;
+      annotations?.requestClose(navigateHomeFromPresentation);
+    }
+    return;
+  }
+  if (!presentationHistoryActive) return;
+  if (allowHistoryExit) {
+    finishPresentationExit();
+    return;
+  }
+  if (annotations?.dirty) {
+    restorePresentationForClose = true;
+    history.forward();
+    return;
+  }
+  finishPresentationExit();
+});
 $("#fullscreen").addEventListener("click", toggleFullscreen);
 $("#edit-toggle").addEventListener("click", () => {
   setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
 });
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
-$("#add-image").addEventListener("click", () => $("#image-input").click());
+const addImageButton = $("#add-image");
+addImageButton.addEventListener("pointerleave", () => addImageButton.classList.remove("is-hover-suppressed"));
+addImageButton.addEventListener("click", (event) => {
+  if (event.detail > 0) addImageButton.classList.add("is-hover-suppressed");
+  $("#image-input").click();
+});
 $("#image-input").addEventListener("change", async (event) => {
   const [file] = event.target.files;
   event.target.value = "";
   if (!file || !activeAssetHandler) return;
   try { await activeAssetHandler(file); }
   catch (error) { showError(error); }
+  finally { if (addImageButton.classList.contains("is-hover-suppressed")) addImageButton.blur(); }
 });
 document.addEventListener("mdpresent:diagnosticschange", (event) => {
   syncPdfExport(!event.detail?.enabled);
