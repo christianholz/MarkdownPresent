@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const exampleSource = fileURLToPath(new URL("./examples/layout-test", import.meta.url));
+const packageMetadata = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8"));
+const defaultDisplayVersion = `v${packageMetadata.version.replace(/\.0$/, "")}`;
+const displayVersion = process.env.MDPRESENT_DISPLAY_VERSION || defaultDisplayVersion;
 
 function copyExampleAssets() {
   return {
@@ -29,6 +32,9 @@ function copyExampleAssets() {
 
 export default defineConfig({
   base: "./",
+  define: {
+    __MDPRESENT_DISPLAY_VERSION__: JSON.stringify(displayVersion),
+  },
   plugins: [copyExampleAssets()],
   build: {
     target: "es2022",

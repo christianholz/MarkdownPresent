@@ -3,7 +3,7 @@ name: Build and deploy MarkdownPresent
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -18,7 +18,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out pushed revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: source
+
+      - name: Determine release and preview versions
+        id: versions
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            release_tag="$(git -C source describe --tags --abbrev=0 --match 'v*')"
+            commit_count="$(git -C source rev-list --count "${release_tag}..HEAD")"
+            commit_date="$(git -C source show -s --format=%cs HEAD | tr -d '-')"
+            echo "preview_label=${release_tag}.${commit_count} (${commit_date})" >> "$GITHUB_OUTPUT"
+          fi
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out latest release
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: release
+          ref: ${{ steps.versions.outputs.release_tag }}
+
       - uses: pnpm/action-setup@v4
         with:
           version: 11.9.0
@@ -26,13 +52,62 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm build:site
+          cache-dependency-path: |
+            release/pnpm-lock.yaml
+            source/pnpm-lock.yaml
+
+      - name: Install release dependencies
+        working-directory: release
+        run: pnpm install --frozen-lockfile
+
+      - name: Test release
+        working-directory: release
+        run: pnpm test
+
+      - name: Build release site
+        working-directory: release
+        env:
+          MDPRESENT_DISPLAY_VERSION: ${{ steps.versions.outputs.release_tag }}
+        run: pnpm build:site
+
+      - name: Assemble release site
+        run: |
+          mkdir -p pages-dist
+          cp -R release/dist/. pages-dist/
+
+      - name: Replicate release as tag preview
+        if: github.ref_type == 'tag'
+        run: |
+          mkdir -p pages-dist/preview
+          cp -R release/dist/. pages-dist/preview/
+
+      - name: Install preview dependencies
+        if: github.ref_type != 'tag'
+        working-directory: source
+        run: pnpm install --frozen-lockfile
+
+      - name: Test preview
+        if: github.ref_type != 'tag'
+        working-directory: source
+        run: pnpm test
+
+      - name: Build preview site
+        if: github.ref_type != 'tag'
+        working-directory: source
+        env:
+          MDPRESENT_DISPLAY_VERSION: ${{ steps.versions.outputs.preview_label }}
+        run: pnpm build:site
+
+      - name: Add preview site
+        if: github.ref_type != 'tag'
+        run: |
+          mkdir -p pages-dist/preview
+          cp -R source/dist/. pages-dist/preview/
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: ./dist
+          path: ./pages-dist
 
   deploy:
     environment:

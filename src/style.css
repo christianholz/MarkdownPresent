@@ -354,7 +354,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
   .home-main { grid-template-columns: 1fr; gap: 34px; padding: 42px 0; }
   .intro h1 { font-size: clamp(46px, 15vw, 72px); }
   .tab { font-size: 11px; }
-  .home-footer { display: none; }
+  .home-footer { padding: 12px 0 2px; line-height: 1.45; }
   .extension-prompt span { white-space: normal; }
   .slide { width: 96vw; }
   .deck-control-cluster { --edit-controls-gap: 5px; max-width: calc(100vw - 12px); }
