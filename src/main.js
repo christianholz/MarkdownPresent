@@ -169,11 +169,13 @@ document.querySelector("#app").innerHTML = `
             </section>
           </div>
           <div class="tab-panel" data-panel="paste">
-            <div class="field-label-row">
-              <label class="field-label" for="markdown-input">Markdown</label>
-              <button class="reset-example" id="reset-example" type="button" hidden>Reset example</button>
+            <label class="field-label" for="markdown-input">Markdown</label>
+            <div class="paste-editor">
+              <textarea id="markdown-input" spellcheck="false" aria-label="Markdown source"></textarea>
+              <button class="reset-example" id="reset-example" type="button" aria-label="Reset Markdown to the default example" title="Reset to default" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8V4m0 0h4M5 4l3.1 3.1a7 7 0 1 1-1.5 7.7"/></svg>
+              </button>
             </div>
-            <textarea id="markdown-input" spellcheck="false" aria-label="Markdown source"></textarea>
             <p class="asset-status" id="paste-status" aria-live="polite"></p>
             <button class="primary-button" id="present-paste">Check and present</button>
           </div>
@@ -802,6 +804,7 @@ $("#markdown-input").addEventListener("input", () => {
   schedulePasteCheck();
 });
 $("#reset-example").addEventListener("click", () => {
+  if (!window.confirm("Discard edits?")) return;
   resetExampleMarkdown();
   pastedAssets = [];
   $("#markdown-input").value = SAMPLE;
