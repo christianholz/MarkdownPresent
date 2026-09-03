@@ -121,7 +121,8 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 
 .deck-screen { position: fixed; inset: 0; overflow: hidden; background: #191d1f; color: white; }
 .stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 3.4vh 3.2vw; }
-.presentation-end-screen { position: fixed; z-index: 4; inset: 0; padding-top: 16px; border: 0; outline: 0; color: rgba(255,255,255,.82); background: #000; cursor: default; font-size: 13px; line-height: 1; text-align: center; }
+.presentation-end-screen { position: fixed; z-index: 4; inset: 0; padding-top: 13px; border: 0; outline: 0; color: rgba(255,255,255,.82); background: #000; cursor: default; text-align: center; }
+.presentation-end-screen, .deck-name { font-size: 12px; font-weight: 400; line-height: normal; }
 .deck-screen.is-at-end .deck-topbar, .deck-screen.is-at-end .deck-control-cluster, .deck-screen.is-at-end .unsaved-comment-count, .deck-screen.is-at-end .progress-track { visibility: hidden; opacity: 0; pointer-events: none; }
 .deck-screen.is-at-end .slide-outline, .deck-screen.is-at-end .history-panel, .deck-screen.is-at-end .resume-prompt, .deck-screen.is-at-end .pdf-preparing-status, .deck-screen.is-at-end .comment-save-menu { display: none !important; }
 .slide { --slide-title-after: 4.2cqh; --slide-h3-before: 1.6em; --slide-h4-before: 1.2em; --slide-h5-before: .8em; --slide-h6-before: .8em; --slide-heading-after: .35em; --slide-paragraph-before: .35em; --slide-paragraph-after: .75em; --slide-list-before: .25em; --slide-list-after: .75em; --slide-list-item-gap: .2em; --slide-nested-list-gap: .14em; --slide-caption-gap: 2.4cqh; display: none; position: relative; width: min(93vw, calc(91vh * 16 / 9)); aspect-ratio: 16 / 9; overflow: hidden; padding: clamp(28px, 4.1%, 72px); color: var(--slide-ink); background: var(--slide-paper); box-shadow: 0 22px 75px rgba(0,0,0,.34); caret-color: transparent; container-type: size; }
@@ -149,7 +150,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide:not(:has(.slide-title)) .slide-copy { display: flex; flex-direction: column; justify-content: center; }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
-.markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-weight: 600; letter-spacing: -.025em; line-height: 1.08; margin-right: 0; margin-bottom: var(--slide-heading-after); margin-left: 0; }
+.markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-weight: 600; letter-spacing: -.025em; line-height: 1.08; margin-right: 0; margin-left: 0; }
 .markdown-body h3 strong, .markdown-body h4 strong, .markdown-body h5 strong, .markdown-body h6 strong { font-weight: 700; }
 .markdown-body h3 { margin-top: var(--slide-h3-before); font-size: 1.23em; }
 .markdown-body h4 { margin-top: var(--slide-h4-before); }
@@ -197,6 +198,19 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
 .math-display { overflow: hidden; margin: .55em 0; }
+.markdown-body > * { margin-top: var(--slide-paragraph-after); margin-bottom: 0; }
+.markdown-body > p { margin-top: var(--slide-paragraph-after); margin-bottom: 0; }
+.markdown-body > :is(ul, ol) { margin-top: var(--slide-list-after); margin-bottom: 0; }
+.markdown-body > :is(h3, h4, h5, h6) { margin-bottom: 0; }
+.markdown-body > h3 { margin-top: var(--slide-h3-before); }
+.markdown-body > h4 { margin-top: var(--slide-h4-before); }
+.markdown-body > h5 { margin-top: var(--slide-h5-before); }
+.markdown-body > h6 { margin-top: var(--slide-h6-before); }
+.markdown-body > :is(blockquote, pre) { margin-top: .6em; }
+.markdown-body > :is(table, .grouped-table, .math-display, .caption) { margin-top: .55em; }
+.markdown-body > .grouped-table > .academic-table { margin: 0; }
+.markdown-body > .slide-toc { margin-top: .1em; }
+.markdown-body > :is(h3, h4, h5, h6) + :not(h3, h4, h5, h6) { margin-top: var(--slide-heading-after); }
 .slide-media { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2.4cqh; }
 .slide-media:empty { display: none; }
 .image-slot { min-width: 0; min-height: 0; flex: 0 0 auto; display: grid; place-items: center; margin: 0; overflow: visible; background: transparent; }
@@ -245,7 +259,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide.is-overflowing::before { content: "Content was fitted to its minimum size"; position: absolute; left: 4%; bottom: 2.6%; color: #9b3e36; font-size: 10px; }
 .deck-topbar { position: fixed; z-index: 5; top: 4px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; opacity: 0; transition: opacity .2s; }
 .deck-screen:hover .deck-topbar, .deck-topbar:focus-within { opacity: 1; }
-.deck-name { color: rgba(255,255,255,.58); font-size: 12px; }
+.deck-name { color: rgba(255,255,255,.58); }
 .icon-button { width: 32px; height: 32px; padding: 0; border: 1px solid rgba(255,255,255,.13); border-radius: 50%; color: white; background: rgba(0,0,0,.27); font-size: 14px; line-height: 1; cursor: pointer; }
 #close, #back-home, .image-popover-close { background: rgba(0,0,0,.5); backdrop-filter: blur(10px); }
 .deck-screen:has(.image-popover) #close, .deck-screen:has(.image-popover) #back-home, .deck-screen:has(.image-popover) .deck-control-cluster { visibility: hidden; opacity: 0; pointer-events: none; }
