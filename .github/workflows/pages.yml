@@ -32,9 +32,9 @@ jobs:
             release_tag="$GITHUB_REF_NAME"
           else
             release_tag="$(git -C source describe --tags --abbrev=0 --match 'v*')"
-            commit_count="$(git -C source rev-list --count "${release_tag}..HEAD")"
-            commit_date="$(git -C source show -s --format=%cs HEAD | tr -d '-')"
-            echo "preview_label=${release_tag}.${commit_count} (${commit_date})" >> "$GITHUB_OUTPUT"
+            release_version="${release_tag#v}"
+            total_commit_count="$(git -C source rev-list --count HEAD)"
+            echo "preview_label=${release_version}-dev.${total_commit_count}" >> "$GITHUB_OUTPUT"
           fi
           echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
 
