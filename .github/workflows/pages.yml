@@ -96,6 +96,8 @@ jobs:
         working-directory: source
         env:
           MDPRESENT_DISPLAY_VERSION: ${{ steps.versions.outputs.preview_label }}
+          MDPRESENT_EXTENSION_URL: ./mdpresent-chrome-extension.zip
+          MDPRESENT_EXTENSION_LABEL: Install dev extension
         run: pnpm build:site
 
       - name: Add preview site
@@ -103,6 +105,17 @@ jobs:
         run: |
           mkdir -p pages-dist/preview
           cp -R source/dist/. pages-dist/preview/
+
+      - name: Build preview extension
+        if: github.ref_type != 'tag'
+        working-directory: source
+        run: pnpm build:extension
+
+      - name: Package preview extension
+        if: github.ref_type != 'tag'
+        run: |
+          cd source/dist/extension
+          zip -qr ../../../pages-dist/preview/mdpresent-chrome-extension.zip .
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4

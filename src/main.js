@@ -136,7 +136,7 @@ Keep the successful parts stable and change only the interaction under investiga
 document.querySelector("#app").innerHTML = `
   <section class="home-screen" data-screen="home">
     <header class="brand">
-      <img src="/icon.svg" width="28" height="28" alt="" />
+      <img src="./icon.svg" width="28" height="28" alt="" />
       <span>MarkdownPresent</span>
     </header>
     <main class="home-main">
@@ -183,7 +183,7 @@ document.querySelector("#app").innerHTML = `
         </section>
         <aside class="extension-prompt">
           <span>Install MarkdownPresent as a Chrome extension to present Markdown directly from GitHub.</span>
-          <a href="https://github.com/christianholz/MarkdownPresent/releases/latest/download/mdpresent-chrome-extension.zip">Install extension&nbsp; ↗</a>
+          <a href="${__MDPRESENT_EXTENSION_URL__}">${__MDPRESENT_EXTENSION_LABEL__}&nbsp; ↗</a>
         </aside>
       </div>
     </main>
