@@ -256,7 +256,7 @@ export class SlideOutline {
         if (!visible.length) return;
         const position = visible.indexOf(this.highlightedIndex);
         const delta = event.key === "ArrowDown" ? 1 : -1;
-        this.preview(visible[(position + delta + visible.length) % visible.length], true, true);
+        this.preview(visible[(position + delta + visible.length) % visible.length], false, true);
       } else if (event.key === "Enter" && this.visibleIndexes().length) {
         event.preventDefault();
         this.commit();
@@ -273,7 +273,7 @@ export class SlideOutline {
     if (["g", "G", "=", "+", "/"].includes(event.key)) {
       event.preventDefault();
       if (this.panel.hidden) this.open();
-      if (event.key === "/") this.search?.focus({ preventScroll: true });
+      this.search?.focus({ preventScroll: true });
       return;
     }
     if (this.panel.hidden) return;

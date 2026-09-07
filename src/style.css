@@ -314,9 +314,9 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide-outline-header strong { font-size: 13px; letter-spacing: .04em; }
 .slide-outline-header button { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.12); border-radius: 50%; color: white; background: transparent; cursor: pointer; }
 .slide-outline-list { min-height: 0; overflow: auto; padding: 10px 0 24px; }
-.slide-outline-search { width: 100%; margin: 12px 0 2px; padding: 9px 11px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: none; color: white; background: rgba(255,255,255,.07); font: inherit; font-size: 13px; }
-.slide-outline-search:focus { border-color: rgba(255,255,255,.38); background: rgba(255,255,255,.1); }
-.slide-outline-search::placeholder { color: rgba(255,255,255,.4); }
+.slide-outline input.slide-outline-search { width: 100%; margin: 12px 0 2px; padding: 9px 11px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: none; color: white; background: rgba(255,255,255,.1); box-shadow: none; font: inherit; font-size: 13px; }
+.slide-outline input.slide-outline-search:focus { border-color: rgba(255,255,255,.38); background: rgba(255,255,255,.1); box-shadow: none; }
+.slide-outline input.slide-outline-search::placeholder { color: rgba(255,255,255,.4); }
 .slide-outline-row { display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 3px; align-items: center; }
 .slide-outline-button { width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 10px 9px; border: 0; border-radius: 9px; color: rgba(255,255,255,.72); background: transparent; text-align: left; cursor: pointer; }
 .slide-outline-copy { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; color: rgba(255,255,255,.4); background: transparent; cursor: pointer; opacity: 0; }
