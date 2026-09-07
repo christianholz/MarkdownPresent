@@ -50,6 +50,10 @@ export class LayoutDiagnostics {
       const copy = element.querySelector(".slide-copy");
       const media = element.querySelector(".slide-media");
       const style = copy ? getComputedStyle(copy) : null;
+      const atomicScales = [...element.querySelectorAll("[data-atomic-scale]")]
+        .map((target) => Number(target.dataset.atomicScale))
+        .filter(Number.isFinite);
+      const atomicFit = atomicScales.length ? ` · atomic ${Math.min(...atomicScales).toFixed(2)}` : "";
       const images = [...element.querySelectorAll(".image-slot img")];
       const overlay = document.createElement("aside");
       overlay.className = "layout-diagnostics";
@@ -58,7 +62,7 @@ export class LayoutDiagnostics {
         <strong>Layout diagnostics · ${index + 1}/${this.presentation.slides.length}</strong>
         <span>source ${sourceRange(model)}${model.continuation ? " · continuation" : ""}</span>
         <span>copy scroll/client ${dimensions(copy)}</span>
-        <span>font ${style?.fontSize || "—"} · spacing ${Number(element.dataset.spacingFactor || 0).toFixed(2)}</span>
+        <span>font ${style?.fontSize || "—"} · spacing ${Number(element.dataset.spacingFactor || 0).toFixed(2)}${atomicFit}</span>
         <span>media ${dimensions(media)} · ${images.length} image${images.length === 1 ? "" : "s"}</span>
         <span class="layout-diagnostics-element">Move over an element to inspect its source range</span>`;
       element.append(overlay);

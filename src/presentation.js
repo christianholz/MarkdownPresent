@@ -133,6 +133,85 @@ function refreshCaptionLayout(slide) {
   return isSingleLine;
 }
 
+function atomicTypographyTargets(copy) {
+  if (!copy) return [];
+  return [...copy.children].flatMap((element) => {
+    if (element.matches("pre, table")) return [element];
+    if (element.matches(".grouped-table")) {
+      const table = element.querySelector("table");
+      return table ? [table] : [];
+    }
+    return [];
+  });
+}
+
+function fitAtomicTypography(targets, fits, minimumFontSize) {
+  for (const target of targets) {
+    target.style.removeProperty("font-size");
+    delete target.dataset.atomicScale;
+  }
+  if (!targets.length) return fits();
+
+  const measured = targets.map((target) => ({
+    target,
+    fontSize: Number.parseFloat(getComputedStyle(target).fontSize),
+  })).filter(({ fontSize }) => Number.isFinite(fontSize) && fontSize > 0);
+  if (!measured.length) return fits();
+
+  const minimumScales = measured.map(({ fontSize }) => Math.min(1, minimumFontSize / fontSize));
+  const applyScales = (scales) => {
+    for (let index = 0; index < measured.length; index += 1) {
+      const { target, fontSize } = measured[index];
+      const scale = scales[index];
+      if (scale >= 0.9995) {
+        target.style.removeProperty("font-size");
+        delete target.dataset.atomicScale;
+      } else {
+        target.style.fontSize = `${fontSize * scale}px`;
+        target.dataset.atomicScale = scale.toFixed(3);
+      }
+    }
+  };
+  const targetFits = (target) => {
+    const availableWidth = Math.min(target.clientWidth, target.parentElement?.clientWidth || target.clientWidth);
+    return target.scrollHeight <= target.clientHeight + 1
+      && target.scrollWidth <= availableWidth + 1;
+  };
+  // Resolve an individual block's own overflow first. If the complete slide is
+  // still too tall, reduce all atomic blocks together to preserve their rhythm.
+  const independentScales = measured.map(({ target }, index) => {
+    if (targetFits(target)) return 1;
+    let low = minimumScales[index];
+    let high = 1;
+    target.style.fontSize = `${measured[index].fontSize * low}px`;
+    if (!targetFits(target)) return low;
+    while (high - low > 0.005) {
+      const middle = (low + high) / 2;
+      target.style.fontSize = `${measured[index].fontSize * middle}px`;
+      if (targetFits(target)) low = middle; else high = middle;
+    }
+    return low;
+  });
+  applyScales(independentScales);
+  if (fits()) return true;
+
+  applyScales(minimumScales);
+  if (!fits()) return false;
+
+  const applyBlend = (amount) => applyScales(independentScales.map(
+    (scale, index) => minimumScales[index] + ((scale - minimumScales[index]) * amount),
+  ));
+  let low = 0;
+  let high = 1;
+  while (high - low > 0.005) {
+    const middle = (low + high) / 2;
+    applyBlend(middle);
+    if (fits()) low = middle; else high = middle;
+  }
+  applyBlend(low);
+  return true;
+}
+
 const imageMeasurementCaches = new WeakMap();
 
 function decodeImageForMeasurement(image, timeout = 8000) {
@@ -583,29 +662,39 @@ export class Presentation {
     applySpacingGlue(slide, 1);
     refreshCaptionLayout(slide);
     this.fitMedia(slide, body, media);
+    const atomicTargets = atomicTypographyTargets(text);
     let low = CONFIG.presentation.minFontSize;
     let high = CONFIG.presentation.maxFontSize;
-    const fits = () => text.scrollHeight <= text.clientHeight + 1 && text.scrollWidth <= text.clientWidth + 1 && (!media || media.scrollHeight <= media.clientHeight + 1);
+    const fits = () => text.scrollHeight <= text.clientHeight + 1
+      && text.scrollWidth <= text.clientWidth + 1
+      && atomicTargets.every((target) => target.scrollHeight <= target.clientHeight + 1 && target.scrollWidth <= target.clientWidth + 1)
+      && (!media || media.scrollHeight <= media.clientHeight + 1);
+    const fitsWithAtomicTypography = () => fitAtomicTypography(
+      atomicTargets,
+      fits,
+      CONFIG.presentation.minAtomicFontSize,
+    );
     const maximizeSpacing = () => {
       applySpacingGlue(slide, 0);
-      if (!fits()) return false;
+      if (!fitsWithAtomicTypography()) return false;
       applySpacingGlue(slide, 2);
-      if (fits()) return true;
+      if (fitsWithAtomicTypography()) return true;
       let spacingLow = 0;
       let spacingHigh = 2;
       while (spacingHigh - spacingLow > 0.01) {
         const middle = (spacingLow + spacingHigh) / 2;
         applySpacingGlue(slide, middle);
-        if (fits()) spacingLow = middle; else spacingHigh = middle;
+        if (fitsWithAtomicTypography()) spacingLow = middle; else spacingHigh = middle;
       }
       applySpacingGlue(slide, spacingLow);
+      fitsWithAtomicTypography();
       return true;
     };
     if (!maximizeSpacing()) {
       while (high - low > 0.35) {
         const middle = (low + high) / 2;
         text.style.fontSize = `${middle}px`;
-        if (fits()) low = middle; else high = middle;
+        if (fitsWithAtomicTypography()) low = middle; else high = middle;
       }
       text.style.fontSize = `${low}px`;
       maximizeSpacing();
