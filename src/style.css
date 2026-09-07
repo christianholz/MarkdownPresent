@@ -163,7 +163,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .markdown-body ul ul, .markdown-body ol ol, .markdown-body ul ol, .markdown-body ol ul { margin: var(--slide-nested-list-gap) 0; font-size: .91em; }
 .markdown-body blockquote { margin: .6em 0; padding: .1em 0 .1em .75em; border-left: 4px solid var(--accent); color: #535a5b; }
 .markdown-body code { padding: .1em .24em; background: #e9e7df; border-radius: .2em; font-family: "SFMono-Regular", Consolas, monospace; font-size: .82em; }
-.markdown-body pre { max-height: 46cqh; margin: .6em 0; padding: .7em .8em; overflow: hidden; border-radius: .35em; background: #22282a; color: #f4f2eb; font-size: .72em; line-height: 1.45; }
+.markdown-body pre { margin: .6em 0; padding: .7em .8em; overflow: hidden; border-radius: .35em; background: #22282a; color: #f4f2eb; font-size: .72em; line-height: 1.45; }
 .markdown-body pre code { padding: 0; background: none; color: inherit; }
 .markdown-body a { color: var(--accent); text-decoration-thickness: .08em; text-underline-offset: .15em; }
 .markdown-body table { width: 100%; border-collapse: collapse; margin: .55em 0; font-size: .83em; }
@@ -180,6 +180,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .grouped-table .academic-table thead th.group-heading.has-underline::after { content: ""; position: absolute; right: .5em; bottom: 0; left: .5em; border-bottom: 1px solid #111; }
 .grouped-table .academic-table thead tr:first-child th.group-heading.has-underline:last-child::after { right: 0; }
 .grouped-table .academic-table thead tr:not(:first-child) th:first-child { text-align: center; }
+.markdown-body table > thead:first-child > tr:first-child > th { padding-top: 0; }
 .grouped-table .academic-table tbody.has-bottom-rule tr:last-child td { border-bottom: 2px solid #111; }
 .grouped-table .academic-table tbody tr.has-top-border td { border-top: 1px solid #111; }
 .markdown-body .caption { margin-top: .55em; color: #5d6364; font-size: .62em; line-height: 1.32; }

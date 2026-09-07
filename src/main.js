@@ -267,6 +267,7 @@ let selectedFiles = [];
 let markdownFiles = [];
 let pastedAssets = readExampleAssets();
 const HISTORY_SCREEN_KEY = "mdpresentScreen";
+const HISTORY_SLIDE_KEY = "mdpresentSlide";
 let presentationHistoryActive = false;
 let allowHistoryExit = false;
 let restorePresentationForClose = false;
@@ -332,15 +333,16 @@ function showError(error) {
 
 function readHash() { return new URLSearchParams(location.hash.slice(1)); }
 function slideFromHash() { return Math.max(0, Number.parseInt(readHash().get("slide") || "1", 10) - 1); }
-function historyState(screen) {
+function historyState(screen, slideIndex = null) {
   const current = history.state && typeof history.state === "object" ? history.state : {};
-  return { ...current, [HISTORY_SCREEN_KEY]: screen };
+  const next = { ...current, [HISTORY_SCREEN_KEY]: screen };
+  if (screen === "presentation" && Number.isInteger(slideIndex)) next[HISTORY_SLIDE_KEY] = slideIndex;
+  else delete next[HISTORY_SLIDE_KEY];
+  return next;
 }
 function pageUrl() { return `${location.pathname}${location.search}`; }
-function updateSlideHash(index) {
-  const hash = readHash();
-  hash.set("slide", String(index + 1));
-  history.replaceState(historyState("presentation"), "", `#${hash}`);
+function updatePresentationHistory(index) {
+  history.replaceState(historyState("presentation", index), "");
 }
 function clearPresentationHash() {
   history.replaceState(historyState("home"), "", pageUrl());
@@ -466,7 +468,7 @@ async function loadDeck(repository, source, label, state = {}) {
       progress: $("#progress"),
       onExit: leavePresentation,
       onIndexChange: (index) => {
-        updateSlideHash(index);
+        updatePresentationHistory(index);
         outline?.setActive(index);
         if (!suppressPositionPersistence && activePositionKey) {
           writeLocalPosition(activePositionKey, presentationPosition(presentation, index));
@@ -848,7 +850,10 @@ window.addEventListener("popstate", (event) => {
   if (screen === "presentation") {
     presentationHistoryActive = true;
     setScreen("deck");
-    void presentation?.show(slideFromHash());
+    const savedSlide = Number.isInteger(event.state?.[HISTORY_SLIDE_KEY])
+      ? event.state[HISTORY_SLIDE_KEY]
+      : slideFromHash();
+    void presentation?.show(savedSlide);
     if (restorePresentationForClose) {
       restorePresentationForClose = false;
       annotations?.requestClose(navigateHomeFromPresentation);

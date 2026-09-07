@@ -33,8 +33,8 @@ jobs:
           else
             release_tag="$(git -C source describe --tags --abbrev=0 --match 'v*')"
             release_version="${release_tag#v}"
-            total_commit_count="$(git -C source rev-list --count HEAD)"
-            echo "preview_label=${release_version}-dev.${total_commit_count}" >> "$GITHUB_OUTPUT"
+            commit_count="$(git -C source rev-list --count "${release_tag}..HEAD")"
+            echo "preview_label=${release_version}-dev+${commit_count}" >> "$GITHUB_OUTPUT"
           fi
           echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
 
