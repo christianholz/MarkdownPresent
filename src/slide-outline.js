@@ -2,6 +2,37 @@ export function slideOutlineLabel(slide, index) {
   return slide.title?.textContent?.trim() || `Slide ${index + 1}`;
 }
 
+function normalizedSearchText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function contentMatchSnippet(text, query, contextWords = 5) {
+  const content = normalizedSearchText(text);
+  const matchStart = content.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  if (matchStart < 0) return null;
+  const matchEnd = matchStart + query.length;
+  const words = [...content.matchAll(/\S+/g)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+  const firstMatchWord = words.findIndex(({ end }) => end > matchStart);
+  let lastMatchWord = firstMatchWord;
+  while (lastMatchWord + 1 < words.length && words[lastMatchWord + 1].start < matchEnd) lastMatchWord += 1;
+  const firstWord = Math.max(0, firstMatchWord - contextWords);
+  const lastWord = Math.min(words.length - 1, lastMatchWord + contextWords);
+  const snippetStart = words[firstWord]?.start ?? matchStart;
+  const snippetEnd = words[lastWord]?.end ?? matchEnd;
+  const snippet = document.createElement("span");
+  snippet.className = "slide-outline-snippet";
+  if (snippetStart > 0) snippet.append("… ");
+  snippet.append(content.slice(snippetStart, matchStart));
+  const mark = document.createElement("mark");
+  mark.textContent = content.slice(matchStart, matchEnd);
+  snippet.append(mark, content.slice(matchEnd, snippetEnd));
+  if (snippetEnd < content.length) snippet.append(" …");
+  return snippet;
+}
+
 export class SlideOutline {
   constructor({ panel, list, toggle, close, search, dismissSurface, onSelect, onCopyLink }) {
     this.panel = panel;
@@ -13,6 +44,14 @@ export class SlideOutline {
     this.onCopyLink = onCopyLink;
     this.buttons = [];
     this.rows = [];
+    this.entries = [];
+    this.resultIndexes = [];
+    this.titleCategory = document.createElement("p");
+    this.titleCategory.className = "slide-outline-category";
+    this.titleCategory.textContent = "Slides";
+    this.contentCategory = document.createElement("p");
+    this.contentCategory.className = "slide-outline-category is-content";
+    this.contentCategory.textContent = "Slide content";
     this.empty = document.createElement("p");
     this.empty.className = "slide-outline-empty";
     this.empty.textContent = "No slides match that search.";
@@ -59,10 +98,12 @@ export class SlideOutline {
   setSlides(slides, { copyLinks = Boolean(this.onCopyLink) } = {}) {
     this.list.replaceChildren();
     this.rows = [];
+    this.entries = [];
     this.buttons = slides.map((slide, index) => {
       const row = document.createElement("div");
       row.className = "slide-outline-row";
-      row.dataset.searchText = `${slideOutlineLabel(slide, index)} ${slide.content?.textContent || ""}`.toLocaleLowerCase();
+      const titleText = slideOutlineLabel(slide, index);
+      const contentText = normalizedSearchText(slide.content?.textContent);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "slide-outline-button";
@@ -73,7 +114,7 @@ export class SlideOutline {
       number.textContent = String(index + 1);
       const label = document.createElement("span");
       label.className = "slide-outline-label";
-      label.textContent = slideOutlineLabel(slide, index);
+      label.textContent = titleText;
       button.append(number, label);
 
       button.addEventListener("pointerdown", (event) => {
@@ -112,6 +153,7 @@ export class SlideOutline {
       }
       this.list.append(row);
       this.rows.push(row);
+      this.entries.push({ row, button, titleText, contentText });
       return button;
     });
     this.list.append(this.empty);
@@ -121,14 +163,40 @@ export class SlideOutline {
   }
 
   visibleIndexes() {
-    return this.rows.map((row, index) => row.hidden ? -1 : index).filter((index) => index >= 0);
+    return this.resultIndexes;
   }
 
   applyFilter() {
-    const query = this.search?.value.trim().toLocaleLowerCase() || "";
-    this.rows.forEach((row) => { row.hidden = Boolean(query && !row.dataset.searchText.includes(query)); });
+    const query = this.search?.value.trim() || "";
+    const foldedQuery = query.toLocaleLowerCase();
+    const titleMatches = [];
+    const contentMatches = [];
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const entry = this.entries[index];
+      entry.row.classList.remove("is-content-result");
+      entry.button.querySelector(".slide-outline-snippet")?.remove();
+      if (!query || entry.titleText.toLocaleLowerCase().includes(foldedQuery)) titleMatches.push(index);
+      else if (entry.contentText.toLocaleLowerCase().includes(foldedQuery)) contentMatches.push(index);
+    }
+
+    this.list.replaceChildren();
+    if (query && titleMatches.length) this.list.append(this.titleCategory);
+    for (const index of titleMatches) this.list.append(this.rows[index]);
+    if (query && contentMatches.length) {
+      this.contentCategory.classList.toggle("has-separator", titleMatches.length > 0);
+      this.list.append(this.contentCategory);
+      for (const index of contentMatches) {
+        const entry = this.entries[index];
+        const snippet = contentMatchSnippet(entry.contentText, query);
+        if (snippet) entry.button.append(snippet);
+        entry.row.classList.add("is-content-result");
+        this.list.append(entry.row);
+      }
+    }
+    this.resultIndexes = [...titleMatches, ...contentMatches];
+    this.empty.hidden = this.resultIndexes.length > 0;
+    this.list.append(this.empty);
     const visible = this.visibleIndexes();
-    this.empty.hidden = visible.length > 0;
     if (visible.length && !visible.includes(this.highlightedIndex)) this.setHighlight(visible[0]);
   }
 
