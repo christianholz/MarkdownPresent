@@ -342,7 +342,9 @@ function historyState(screen, slideIndex = null) {
 }
 function pageUrl() { return `${location.pathname}${location.search}`; }
 function updatePresentationHistory(index) {
-  history.replaceState(historyState("presentation", index), "");
+  const hash = readHash();
+  hash.set("slide", String(index + 1));
+  history.replaceState(historyState("presentation", index), "", `${pageUrl()}#${hash}`);
 }
 function clearPresentationHash() {
   history.replaceState(historyState("home"), "", pageUrl());
