@@ -55,6 +55,7 @@ export class LayoutDiagnostics {
         .filter(Number.isFinite);
       const atomicFit = atomicScales.length ? ` · atomic ${Math.min(...atomicScales).toFixed(2)}` : "";
       const images = [...element.querySelectorAll(".image-slot img")];
+      const diagrams = [...element.querySelectorAll(".drawio-frame")];
       const overlay = document.createElement("aside");
       overlay.className = "layout-diagnostics";
       overlay.setAttribute("aria-label", `Layout diagnostics for slide ${index + 1}`);
@@ -63,7 +64,7 @@ export class LayoutDiagnostics {
         <span>source ${sourceRange(model)}${model.continuation ? " · continuation" : ""}</span>
         <span>copy scroll/client ${dimensions(copy)}</span>
         <span>font ${style?.fontSize || "—"} · spacing ${Number(element.dataset.spacingFactor || 0).toFixed(2)}${atomicFit}</span>
-        <span>media ${dimensions(media)} · ${images.length} image${images.length === 1 ? "" : "s"}</span>
+        <span>media ${dimensions(media)} · ${images.length} image${images.length === 1 ? "" : "s"} · ${diagrams.length} diagram${diagrams.length === 1 ? "" : "s"}</span>
         <span class="layout-diagnostics-element">Move over an element to inspect its source range</span>`;
       element.append(overlay);
     });

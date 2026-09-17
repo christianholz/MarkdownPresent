@@ -190,6 +190,40 @@ function captionExtension() {
   };
 }
 
+function parseDrawioIframe(raw) {
+  const template = document.createElement("template");
+  template.innerHTML = raw.trim();
+  if (template.content.childElementCount !== 1) return null;
+  const frame = template.content.firstElementChild;
+  if (!frame?.matches("iframe") || frame.textContent.trim() || frame.children.length) return null;
+  const src = drawioViewerUrl(frame.getAttribute("src") || "");
+  if (!src) return null;
+  let title = frame.getAttribute("title")?.trim() || "";
+  if (!title) {
+    try { title = new URL(src).searchParams.get("title")?.trim() || ""; }
+    catch { /* The URL was already validated above. */ }
+  }
+  return { src, title: title || "draw.io diagram" };
+}
+
+function drawioEmbedExtension() {
+  return {
+    name: "drawioEmbed",
+    level: "block",
+    start(src) { return src.search(/<iframe\b/i); },
+    tokenizer(src) {
+      const match = /^<iframe\b[^>]*>[\s\S]*?<\/iframe>[ \t]*(?:\n|$)/i.exec(src);
+      if (!match) return undefined;
+      const embed = parseDrawioIframe(match[0]);
+      if (!embed) return undefined;
+      return { type: "drawioEmbed", raw: match[0], ...embed };
+    },
+    renderer(token) {
+      return `<div class="drawio-embed-source" data-drawio-src="${escapeHtml(token.src)}" data-drawio-title="${escapeHtml(token.title)}"></div>`;
+    },
+  };
+}
+
 function highlightedCode(token) {
   const requested = String(token.lang || "").trim().split(/\s+/, 1)[0].toLowerCase();
   const language = CODE_LANGUAGE_ALIASES[requested] || requested;
@@ -214,7 +248,7 @@ function escapeHtml(text) {
 marked.use({
   gfm: true,
   breaks: false,
-  extensions: [...mathExtension(), groupedTableExtension(), tocExtension(), captionExtension()],
+  extensions: [...mathExtension(), groupedTableExtension(), tocExtension(), captionExtension(), drawioEmbedExtension()],
   renderer: { code: highlightedCode },
 });
 
@@ -245,6 +279,7 @@ export function extractUnsupportedMediaReferences(markdown) {
   for (const pattern of attributePatterns) {
     for (const match of source.matchAll(pattern)) {
       const reference = (match[1] || match[2] || match[3] || "").trim();
+      if (/^<iframe\b/i.test(match[0]) && drawioViewerUrl(reference)) continue;
       if (reference) references.push(reference);
     }
   }
@@ -328,6 +363,7 @@ function tokenElementSelector(token) {
   if (token.type === "groupedTable") return ".grouped-table";
   if (token.type === "slideToc") return ".slide-toc";
   if (token.type === "captionBlock") return "p.caption";
+  if (token.type === "drawioEmbed") return ".drawio-embed-source";
   if (token.type === "hr") return "hr";
   if (token.type === "blockMath") return ".math-display";
   return null;
@@ -404,6 +440,28 @@ function hasMeaningfulSlideContent(fragment) {
   return Boolean(fragment.querySelector("table, ul, ol, pre, blockquote, hr, math, .math-display"));
 }
 
+function drawioViewerUrl(href) {
+  try {
+    const url = new URL(href);
+    return url.protocol === "https:" && url.hostname === "viewer.diagrams.net" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function standaloneLinkContainer(link) {
+  const paragraph = link.parentElement?.matches("p") ? link.parentElement : null;
+  if (!paragraph) return null;
+  return [...paragraph.childNodes].every((node) => node === link || (node.nodeType === Node.TEXT_NODE && !node.textContent.trim()))
+    ? paragraph
+    : null;
+}
+
+function drawioLabel(link) {
+  const label = link.textContent.trim();
+  return label && !/^https?:\/\//i.test(label) && label.length <= 120 ? label : "draw.io diagram";
+}
+
 function imageSourceRanges(markdown) {
   const ranges = [];
 
@@ -448,6 +506,40 @@ function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceSta
   if (markdown) annotateSourceRanges(template.content, markdown, sourceOffsets);
   const title = extractTitle(template.content);
   const images = [];
+  const diagrams = [];
+  for (const embed of [...template.content.querySelectorAll(".drawio-embed-source")]) {
+    const src = drawioViewerUrl(embed.dataset.drawioSrc || "");
+    const localStart = Number(embed.dataset.sourceStart);
+    const localEnd = Number(embed.dataset.sourceEnd);
+    if (src) {
+      diagrams.push({
+        src,
+        title: embed.dataset.drawioTitle || "draw.io diagram",
+        sourceStart: Number.isInteger(localStart) ? localStart : null,
+        sourceEnd: Number.isInteger(localEnd) ? localEnd : null,
+      });
+    }
+    embed.remove();
+  }
+  for (const link of [...template.content.querySelectorAll("a")]) {
+    const href = link.getAttribute("href") || "";
+    const drawioSrc = drawioViewerUrl(href);
+    const container = drawioSrc ? standaloneLinkContainer(link) : null;
+    if (container) {
+      const localStart = Number(container.dataset.sourceStart);
+      const localEnd = Number(container.dataset.sourceEnd);
+      diagrams.push({
+        src: drawioSrc,
+        title: drawioLabel(link),
+        sourceStart: Number.isInteger(localStart) ? localStart : null,
+        sourceEnd: Number.isInteger(localEnd) ? localEnd : null,
+      });
+      container.remove();
+    } else if (/^https?:/i.test(href)) {
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    }
+  }
   const sourceRanges = markdown ? imageSourceRanges(markdown) : [];
   let sourceRangeIndex = 0;
   const imageParents = new Set();
@@ -469,15 +561,8 @@ function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceSta
   for (const parent of imageParents) {
     if (!parent.textContent.trim() && !parent.children.length) parent.remove();
   }
-  for (const link of template.content.querySelectorAll("a")) {
-    const href = link.getAttribute("href") || "";
-    if (/^https?:/i.test(href)) {
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-    }
-  }
-  const imageOnly = images.length > 0 && !hasMeaningfulSlideContent(template.content);
-  return { markdown, sourceStart, sourceEnd, title, content: template.content, images, imageOnly };
+  const imageOnly = images.length + diagrams.length > 0 && !hasMeaningfulSlideContent(template.content);
+  return { markdown, sourceStart, sourceEnd, title, content: template.content, images, diagrams, imageOnly };
 }
 
 function splitRenderedHtml(html) {

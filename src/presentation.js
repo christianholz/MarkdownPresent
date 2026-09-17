@@ -82,6 +82,7 @@ function modelWithChunks(model, chunks) {
     title: cloneNode(model.title),
     content: contentFromChunks(chunks),
     images: model.images.map((image) => ({ ...image })),
+    diagrams: (model.diagrams || []).map((diagram) => ({ ...diagram })),
   };
 }
 
@@ -101,7 +102,7 @@ function addContinuationSuffix(model, page, total) {
 function applyImageMeasurements(slide, model, measurements) {
   const body = slide.querySelector(".slide-body");
   const media = slide.querySelector(".slide-media");
-  if (!body || !media || model.images.length < 2 || slide.classList.contains("is-caption-layout")) return;
+  if (!body || !media || model.images.length < 2 || model.diagrams?.length || slide.classList.contains("is-caption-layout")) return;
   const ratios = model.images.map(({ src }) => {
     const measurement = measurements.get(src);
     return measurement ? measurement.width / measurement.height : 1;
@@ -118,6 +119,7 @@ function refreshCaptionLayout(slide) {
   if (slide.classList.contains("is-title-slide")) return false;
   const copy = slide.querySelector(".slide-copy");
   const media = slide.querySelector(".slide-media");
+  if (media?.querySelector(".drawio-slot")) return false;
   const blocks = copy ? [...copy.children].filter((element) => !element.matches(".slide-comment-card")) : [];
   const imageCount = media?.querySelectorAll(".image-slot").length || 0;
   const paragraph = blocks.length === 1 && blocks[0].matches("p") ? blocks[0] : null;
@@ -626,6 +628,21 @@ export class Presentation {
     if (!slide || slide.assetsLoaded) return;
     slide.assetsLoaded = true;
     const slots = [...slide.element.querySelectorAll("[data-image-src]")];
+    const diagramSlots = [...slide.element.querySelectorAll("[data-drawio-src]")];
+    for (const slot of diagramSlots) {
+      const frame = document.createElement("iframe");
+      frame.className = "drawio-frame";
+      frame.src = slot.dataset.drawioSrc;
+      frame.title = slot.dataset.drawioTitle || "draw.io diagram";
+      frame.loading = "eager";
+      frame.referrerPolicy = "no-referrer";
+      frame.allow = "fullscreen";
+      frame.addEventListener("load", () => {
+        frame.dataset.loaded = "true";
+        slot.querySelector(".drawio-loading")?.remove();
+      }, { once: true });
+      slot.append(frame);
+    }
     await Promise.allSettled(slots.map(async (slot) => {
       try {
         const url = await this.assetManager.getUrl(slot.dataset.imageSrc);
@@ -733,7 +750,15 @@ export class Presentation {
     this.printStage?.remove();
     this.printStage = printStage;
     this.stage.after(printStage);
-    await Promise.all(clones.flatMap((slide) => [...slide.querySelectorAll("img")].map((image) => image.decode().catch(() => {}))));
+    const waitForFrame = (frame) => new Promise((resolve) => {
+      const finish = () => resolve();
+      frame.addEventListener("load", finish, { once: true });
+      window.setTimeout(finish, 6000);
+    });
+    await Promise.all(clones.flatMap((slide) => [
+      ...[...slide.querySelectorAll("img")].map((image) => image.decode().catch(() => {})),
+      ...[...slide.querySelectorAll("iframe.drawio-frame")].map(waitForFrame),
+    ]));
     if (renderVersion !== this.renderVersion) {
       printStage.remove();
       return;
@@ -748,7 +773,7 @@ export class Presentation {
 
   fitMedia(slide, body, media) {
     body.style.removeProperty("grid-template-columns");
-    if (!media || slide.classList.contains("is-caption-layout")) return;
+    if (!media || media.querySelector(".drawio-slot") || slide.classList.contains("is-caption-layout")) return;
     const images = [...media.querySelectorAll("img")];
     if (images.length < 2 || !slide.classList.contains("is-active")) return;
     const ratios = images.map((image) => image.naturalWidth / image.naturalHeight);
@@ -870,13 +895,15 @@ function instantiateTemplate(html) {
 
 function documentFragmentFrom(model, index) {
   const isTitleSlide = model.title?.tagName === "H1";
+  const diagrams = model.diagrams || [];
+  const mediaCount = model.images.length + diagrams.length;
   const template = model.imageOnly
     ? gallerySlideTemplate
-    : isTitleSlide && model.images.length
+    : isTitleSlide && mediaCount
       ? titleImageSlideTemplate
     : isTitleSlide
     ? titleSlideTemplate
-    : model.images.length
+    : mediaCount
       ? imageSlideTemplate
       : contentSlideTemplate;
   const slide = instantiateTemplate(template);
@@ -893,12 +920,12 @@ function documentFragmentFrom(model, index) {
   const copy = slide.querySelector('[data-slot="content"]');
   copy?.append(model.content.cloneNode(true));
 
-  if (model.images.length) {
+  if (mediaCount) {
     const media = slide.querySelector('[data-slot="media"]');
     slide.classList.add("has-media");
     if (!media) throw new Error("This slide layout cannot contain images.");
-    media.classList.toggle("is-single-image", !model.imageOnly && model.images.length === 1);
-    if (model.imageOnly) media.style.setProperty("--gallery-count", model.images.length);
+    media.classList.toggle("is-single-image", !model.imageOnly && mediaCount === 1);
+    if (model.imageOnly) media.style.setProperty("--gallery-count", mediaCount);
     for (const image of model.images) {
       const slot = document.createElement("figure");
       slot.className = "image-slot";
@@ -910,6 +937,19 @@ function documentFragmentFrom(model, index) {
         slot.dataset.sourceKind = "image";
       }
       slot.innerHTML = '<span class="image-loading">Loading image…</span>';
+      media.append(slot);
+    }
+    for (const diagram of diagrams) {
+      const slot = document.createElement("figure");
+      slot.className = "image-slot drawio-slot";
+      slot.dataset.drawioSrc = diagram.src;
+      slot.dataset.drawioTitle = diagram.title;
+      if (Number.isInteger(diagram.sourceStart) && Number.isInteger(diagram.sourceEnd)) {
+        slot.dataset.sourceStart = String(diagram.sourceStart);
+        slot.dataset.sourceEnd = String(diagram.sourceEnd);
+        slot.dataset.sourceKind = "drawio";
+      }
+      slot.innerHTML = '<span class="drawio-loading">Loading diagram…</span>';
       media.append(slot);
     }
   }

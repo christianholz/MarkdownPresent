@@ -25,6 +25,8 @@ Optional subtitle
 
 The TOC marker is case-insensitive and generates links from H1 and H2 headings. MarkdownPresent also supports formatted text, nested lists, ordinary tables, highlighted fenced code, images, and `$inline$` or `$$display$$` math. Image paths are relative to the Markdown file.
 
+To include a draw.io diagram, choose **File → Embed → IFrame** in draw.io and paste the generated `<iframe>...</iframe>` on its own line in the Markdown file. MarkdownPresent accepts these embeds from `viewer.diagrams.net`; other iframe sources remain blocked.
+
 Long H2 sections split automatically into up to three image-aware slides. MarkdownPresent keeps headings with their content, avoids list widows, repeats heading context with “(cont'd),” and repeats headers when a table continues.
 
 Grouped table headers use the project’s extended table syntax:
