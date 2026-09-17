@@ -1,5 +1,6 @@
 import { CONFIG } from "./config.js";
 import { applySpacingGlue, fittedImageStackWidth } from "./layout.js";
+import { drawioDiagramAspectRatio } from "./drawio.js";
 import titleSlideTemplate from "./templates/title-slide.html?raw";
 import contentSlideTemplate from "./templates/content-slide.html?raw";
 import imageSlideTemplate from "./templates/image-slide.html?raw";
@@ -135,19 +136,38 @@ function refreshCaptionLayout(slide) {
   return isSingleLine;
 }
 
-function loadDiagramFrame(slot) {
-  if (slot.querySelector("iframe.drawio-frame")) return;
-  const frame = document.createElement("iframe");
-  frame.className = "drawio-frame";
-  frame.title = slot.dataset.drawioTitle || "draw.io diagram";
-  frame.loading = "eager";
-  frame.allow = "fullscreen";
-  frame.addEventListener("load", () => {
-    frame.dataset.loaded = "true";
-  }, { once: true });
-  frame.src = slot.dataset.drawioSrc;
-  slot.querySelector(".drawio-loading")?.remove();
-  slot.append(frame);
+async function loadDiagramFrame(slot) {
+  if (!slot.querySelector("iframe.drawio-frame")) {
+    const frame = document.createElement("iframe");
+    frame.className = "drawio-frame";
+    frame.title = slot.dataset.drawioTitle || "draw.io diagram";
+    frame.loading = "eager";
+    frame.allow = "fullscreen";
+    frame.addEventListener("load", () => {
+      frame.dataset.loaded = "true";
+    }, { once: true });
+    frame.src = slot.dataset.drawioSrc;
+    slot.querySelector(".drawio-loading")?.remove();
+    slot.append(frame);
+  }
+  const ratio = await drawioDiagramAspectRatio(slot.dataset.drawioSrc);
+  slot.dataset.drawioAspectRatio = String(ratio || (16 / 9));
+}
+
+function fitDiagramSlots(media) {
+  const slots = [...media?.querySelectorAll(".drawio-slot") || []];
+  if (!slots.length) return;
+  const style = getComputedStyle(media);
+  const gap = Number.parseFloat(style.rowGap) || 0;
+  const availableHeight = Math.max(1, (media.clientHeight - gap * Math.max(0, media.children.length - 1)) / Math.max(1, media.children.length));
+  for (const slot of slots) {
+    const ratio = Number.parseFloat(slot.dataset.drawioAspectRatio) || (16 / 9);
+    const border = Number.parseFloat(new URL(slot.dataset.drawioSrc).searchParams.get("border")) || 0;
+    const width = slot.clientWidth || media.clientWidth;
+    const desiredHeight = Math.max(1, (Math.max(1, width - 2 * border) / ratio) + 2 * border);
+    const height = Math.min(availableHeight, desiredHeight);
+    slot.style.setProperty("--drawio-height", `${height}px`);
+  }
 }
 
 function atomicTypographyTargets(copy) {
@@ -643,7 +663,7 @@ export class Presentation {
     if (!slide) return;
     if (!slide.diagramsLoaded && slide.element.classList.contains("is-active")) {
       slide.diagramsLoaded = true;
-      slide.element.querySelectorAll("[data-drawio-src]").forEach(loadDiagramFrame);
+      await Promise.allSettled([...slide.element.querySelectorAll("[data-drawio-src]")].map(loadDiagramFrame));
     }
     if (slide.assetsLoaded) {
       if (index === this.index) this.fitCurrent();
@@ -683,6 +703,7 @@ export class Presentation {
     const text = slide.querySelector(".slide-copy");
     const media = slide.querySelector(".slide-media");
     if (!body || !text) return;
+    fitDiagramSlots(media);
     text.style.fontSize = `${CONFIG.presentation.maxFontSize}px`;
     applySpacingGlue(slide, 1);
     refreshCaptionLayout(slide);
@@ -758,7 +779,7 @@ export class Presentation {
     this.printStage?.remove();
     this.printStage = printStage;
     this.stage.after(printStage);
-    clones.forEach((slide) => slide.querySelectorAll("[data-drawio-src]").forEach(loadDiagramFrame));
+    await Promise.allSettled(clones.flatMap((slide) => [...slide.querySelectorAll("[data-drawio-src]")].map(loadDiagramFrame)));
     const waitForFrame = (frame) => new Promise((resolve) => {
       const finish = () => resolve();
       frame.addEventListener("load", finish, { once: true });

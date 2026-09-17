@@ -443,23 +443,18 @@ function hasMeaningfulSlideContent(fragment) {
 function drawioViewerUrl(href) {
   try {
     const url = new URL(href);
-    return url.protocol === "https:" && url.hostname === "viewer.diagrams.net" ? url.href : null;
+    if (url.protocol !== "https:" || url.hostname !== "viewer.diagrams.net") return null;
+    url.searchParams.set("border", "24");
+    return url.href;
   } catch {
     return null;
   }
 }
 
-function standaloneLinkContainer(link) {
-  const paragraph = link.parentElement?.matches("p") ? link.parentElement : null;
-  if (!paragraph) return null;
-  return [...paragraph.childNodes].every((node) => node === link || (node.nodeType === Node.TEXT_NODE && !node.textContent.trim()))
-    ? paragraph
-    : null;
-}
-
-function drawioLabel(link) {
-  const label = link.textContent.trim();
-  return label && !/^https?:\/\//i.test(label) && label.length <= 120 ? label : "draw.io diagram";
+function drawioTitle(src, label = "") {
+  if (label.trim()) return label.trim();
+  try { return new URL(src).searchParams.get("title")?.trim() || "draw.io diagram"; }
+  catch { return "draw.io diagram"; }
 }
 
 function imageSourceRanges(markdown) {
@@ -523,19 +518,7 @@ function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceSta
   }
   for (const link of [...template.content.querySelectorAll("a")]) {
     const href = link.getAttribute("href") || "";
-    const drawioSrc = drawioViewerUrl(href);
-    const container = drawioSrc ? standaloneLinkContainer(link) : null;
-    if (container) {
-      const localStart = Number(container.dataset.sourceStart);
-      const localEnd = Number(container.dataset.sourceEnd);
-      diagrams.push({
-        src: drawioSrc,
-        title: drawioLabel(link),
-        sourceStart: Number.isInteger(localStart) ? localStart : null,
-        sourceEnd: Number.isInteger(localEnd) ? localEnd : null,
-      });
-      container.remove();
-    } else if (/^https?:/i.test(href)) {
+    if (/^https?:/i.test(href)) {
       link.target = "_blank";
       link.rel = "noopener noreferrer";
     }
@@ -547,16 +530,15 @@ function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceSta
     const src = image.getAttribute("src") || "";
     const alt = image.getAttribute("alt") || "";
     const range = sourceRanges[sourceRangeIndex++];
+    const sourceStart = range ? (sourceOffsets?.[range.start] ?? range.start) : null;
+    const sourceEnd = range ? (sourceOffsets?.[range.end] ?? range.end) : null;
     if (image.parentElement) imageParents.add(image.parentElement);
     image.removeAttribute("src");
     image.removeAttribute("srcset");
     image.remove();
-    images.push({
-      src,
-      alt,
-      sourceStart: range ? (sourceOffsets?.[range.start] ?? range.start) : null,
-      sourceEnd: range ? (sourceOffsets?.[range.end] ?? range.end) : null,
-    });
+    const drawioSrc = drawioViewerUrl(src);
+    if (drawioSrc) diagrams.push({ src: drawioSrc, title: drawioTitle(drawioSrc, alt), sourceStart, sourceEnd });
+    else images.push({ src, alt, sourceStart, sourceEnd });
   }
   for (const parent of imageParents) {
     if (!parent.textContent.trim() && !parent.children.length) parent.remove();

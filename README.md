@@ -25,7 +25,7 @@ Optional subtitle
 
 The TOC marker is case-insensitive and generates links from H1 and H2 headings. MarkdownPresent also supports formatted text, nested lists, ordinary tables, highlighted fenced code, images, and `$inline$` or `$$display$$` math. Image paths are relative to the Markdown file.
 
-To include a draw.io diagram, choose **File → Embed → Notion** in draw.io and paste the generated `viewer.diagrams.net` URL on its own line in the Markdown file. Existing draw.io iframe embeds are supported too; other iframe sources remain blocked.
+To include a draw.io diagram, choose **File → Embed → Notion** in draw.io and use the generated URL in standard image syntax: `![Diagram](https://viewer.diagrams.net/…)`. Existing draw.io iframe embeds are supported too; other iframe sources remain blocked.
 
 Long H2 sections split automatically into up to three image-aware slides. MarkdownPresent keeps headings with their content, avoids list widows, repeats heading context with “(cont'd),” and repeats headers when a table continues.
 

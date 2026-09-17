@@ -126,9 +126,9 @@ $$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$
 
 ## Draw.io diagrams stay part of the Markdown
 
-In draw.io, choose **File → Embed → Notion**, then paste the generated URL on its own line in the Markdown file.
+In draw.io, choose **File → Embed → Notion**, then use the generated URL as a Markdown image.
 
-${DRAWIO_EXAMPLE_URL}
+![MarkdownPresent flow](${DRAWIO_EXAMPLE_URL})
 
 ## The next iteration has one job
 
