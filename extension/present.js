@@ -242,6 +242,10 @@ async function boot() {
         || documentModel.slides.find((slide) => slide.title)?.title?.textContent?.trim()
         || payload.source.path.split("/").pop()
         || "Presentation";
+      const windowTitle = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
+        || payload.source.path.split("/").pop()
+        || title;
+      document.title = `${windowTitle} — MarkdownPresent`;
       annotations = new AnnotationManager({
         stage: $("#stage"),
         deck: $(".deck-screen"),

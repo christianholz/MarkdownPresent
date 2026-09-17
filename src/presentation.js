@@ -135,6 +135,21 @@ function refreshCaptionLayout(slide) {
   return isSingleLine;
 }
 
+function loadDiagramFrame(slot) {
+  if (slot.querySelector("iframe.drawio-frame")) return;
+  const frame = document.createElement("iframe");
+  frame.className = "drawio-frame";
+  frame.title = slot.dataset.drawioTitle || "draw.io diagram";
+  frame.loading = "eager";
+  frame.allow = "fullscreen";
+  frame.addEventListener("load", () => {
+    frame.dataset.loaded = "true";
+  }, { once: true });
+  frame.src = slot.dataset.drawioSrc;
+  slot.querySelector(".drawio-loading")?.remove();
+  slot.append(frame);
+}
+
 function atomicTypographyTargets(copy) {
   if (!copy) return [];
   return [...copy.children].flatMap((element) => {
@@ -579,7 +594,7 @@ export class Presentation {
       element.setAttribute("aria-label", `Slide ${index + 1}`);
       element.dataset.slideNumber = String(index + 1);
       element.classList.toggle("is-active", index === nextIndex);
-      return reusable || { model, element, assetsLoaded: false };
+      return reusable || { model, element, assetsLoaded: false, diagramsLoaded: false };
     });
     this.stage.replaceChildren(...nextSlides.map(({ element }) => element), this.endScreen);
     this.slides = nextSlides;
@@ -625,24 +640,17 @@ export class Presentation {
 
   async loadAssets(index) {
     const slide = this.slides[index];
-    if (!slide || slide.assetsLoaded) return;
+    if (!slide) return;
+    if (!slide.diagramsLoaded && slide.element.classList.contains("is-active")) {
+      slide.diagramsLoaded = true;
+      slide.element.querySelectorAll("[data-drawio-src]").forEach(loadDiagramFrame);
+    }
+    if (slide.assetsLoaded) {
+      if (index === this.index) this.fitCurrent();
+      return;
+    }
     slide.assetsLoaded = true;
     const slots = [...slide.element.querySelectorAll("[data-image-src]")];
-    const diagramSlots = [...slide.element.querySelectorAll("[data-drawio-src]")];
-    for (const slot of diagramSlots) {
-      const frame = document.createElement("iframe");
-      frame.className = "drawio-frame";
-      frame.src = slot.dataset.drawioSrc;
-      frame.title = slot.dataset.drawioTitle || "draw.io diagram";
-      frame.loading = "eager";
-      frame.referrerPolicy = "no-referrer";
-      frame.allow = "fullscreen";
-      frame.addEventListener("load", () => {
-        frame.dataset.loaded = "true";
-        slot.querySelector(".drawio-loading")?.remove();
-      }, { once: true });
-      slot.append(frame);
-    }
     await Promise.allSettled(slots.map(async (slot) => {
       try {
         const url = await this.assetManager.getUrl(slot.dataset.imageSrc);
@@ -750,6 +758,7 @@ export class Presentation {
     this.printStage?.remove();
     this.printStage = printStage;
     this.stage.after(printStage);
+    clones.forEach((slide) => slide.querySelectorAll("[data-drawio-src]").forEach(loadDiagramFrame));
     const waitForFrame = (frame) => new Promise((resolve) => {
       const finish = () => resolve();
       frame.addEventListener("load", finish, { once: true });

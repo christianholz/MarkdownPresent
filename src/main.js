@@ -27,7 +27,7 @@ import {
   writeLocalPosition,
 } from "./positions.js";
 
-const DRAWIO_EXAMPLE = '<iframe frameborder="0" style="width:100%;height:186px;" src="https://viewer.diagrams.net/?tags=%7B%7D&lightbox=1&highlight=0000ff&edit=_blank&layers=1&nav=1&title=MarkdownPresent%20example.drawio&dark=auto#R%3Cmxfile%3E%3Cdiagram%20name%3D%22Page-1%22%20id%3D%22w3MqD6hxhlkN2j2nXwhw%22%3E7VnbcpswEP0aP6bD3fZjbCdpO8nUM5lO26eOAhtQIhAjRGz69ZWMuMjG1%2FjSdvoUdNAKOHv2aK307HE8v2MojR5oAKRnGcG8Z096lmW6pi3%2BSKQokX4FhAwHalIDPOJfoEBDoTkOINMmckoJx6kO%2BjRJwOcahhijM33aMyX6U1MUwgrw6COyin7DAY9KdGD1G%2Fwj4DCqnmx6w%2FJOjKrJ6kuyCAV01oLsm549ZpTy8iqej4FI8ipeyrjbNXfrF2OQ8F0CwPkZvxSzz1%2Fu7kdf2TgcXc2cK69cBYIVFpplFZTRnPmwYS1XzeNFRZ5c9lENKeMRDWmCyE2DjhjNkwDkGxpi1My5pzQVoCnAF%2BC8UMJAOacCinhM1F3xlqz4ruIXgx9y8MGthpN5%2B%2BakqEZzzBdhH4aeqcZlpGd5atyEykE7cgoMx8CBKUwJE7EQ%2BAaGnDrtol6AihVYIeIYEMTxm54BpIQb1vPq0CnFIjeWoYqsrhVVYqZj6EuUmVNRjULERes1Gmihmz005K6XTCMFPdGzCHN4TNFCTzPhHHpSy%2Bg3RHIVrQBgHOatJ6xSGbVr0VM8zFqFq6BqFUunbpm5NvkabftytKGsGo6EQ6TyMo%2FJtc%2BpENdIfjIWbnSPnoBMaYY5pomY8kQ5p3FrwjXBobzB6RKXNOcEJzCu%2FdHoIrig%2BUEcd1BsL1HsuBrFw1NRPDiilTkXsTJlSboduZvN6ED729Gw%2Bu80rHcl1NnPV8wDfCUOxDihXHQYh6h%2FsNVgakepvNk4mcMYR9R%2F%2F7%2F%2BFzwML6n%2F%2Fvr8HWtffUDsVTSlyZRBBqo72HubtVaroN561TK2p5fB4FRVMDy9Z6QlV2ixE5%2FGNVzvbK6xU2PyZzZv3uBczZu9C0kX7N78iOGMY3SYHrf3cH3jTD2c6e3CtFhI%2FPyH7VJcpORTkuEAFIKytOTxGc%2FloLvU6hExYRTgN3EZ8sWcEnpi8uuWQAFpUw9IQIeBWnoCHPtcUt%2FJQMXHcZ3prkRknNFXIV0ia2GS0ERm7BkTsgQhJX5fPBFYR1XEOAg6WoyV1MUAHCehAAOc%2BXmWHerQXTuaubSjDfSSMPsnykhF%2F1H6uqq%2BLtPYVd3bXo1dfchTRhmeve1kR46WD2ggCa7laWCjOoHcYpmKffpBt1s75%2BkHq530H1DCMVr8yyrBXGMjZ5KCfUQpDP92JXjW1tPeLiVcONNi2Bz%2Bl2exzb9Q7Jvf%3C%2Fdiagram%3E%3C%2Fmxfile%3E"></iframe>';
+const DRAWIO_EXAMPLE_URL = 'https://viewer.diagrams.net/?border=0&tags=%7B%7D&lightbox=1&highlight=0000ff&edit=_blank&layers=1&nav=1&title=MarkdownPresent%20example.drawio&dark=auto#R%3Cmxfile%3E%3Cdiagram%20name%3D%22Page-1%22%20id%3D%22w3MqD6hxhlkN2j2nXwhw%22%3E1VdLb6MwEP41HJF4NCQ9dtPHHrZSpRz27MIErDUMMiaE%2FfVrwIB5VE0pjbanwOd5zzeDY7j7%2BPzESRo9YwDMcKzgbLj3huPYG9uVPxVSNsi2BUJOAyXUAwf6FxRoKTSnAWQDQYHIBE2HoI9JAr4YYIRzLIZiR2RDrykJYQIcfMKm6G8aiKhBd862x38CDaPWs%2B3dNicxaYVVJllEAiw0yH0w3D1HFM1TfN4Dq4rX1qXRe3zjtAuMQyIuUYAgBDPPgJsJClnSWr0C37SnoAxz7iupWv%2FISQyqF4SHoMQ7s8r%2FE2AMgpdSjAMjgp6GrohqTdjJ9dHLB5XAfDLjOObCFmXbRI55EkClahnujyKiAg4pqXMqJG0lFolYurq35WOjfSIsV9oKAC7grHmYZhnpRPBU2wuNNQpqrbTMUKNxY61Tl0sqIsmYVo95zO58gVzmXSVIJfF%2FkVdgL5hRQTGRIq8oBMaawB2jYXUgcFQ5zAWjCey7UbTmyllivqiiMwV1RwW92QwKertCQeupqZltkjRdNjTavOnzouxdYVq0AC4dFHvBoMSBfNd8fbDBu3cnphuRcnj86QbLVpgph0yWhtS0X9TnjiB6l8dmr9DuLo4Vt%2BIRE3FQurPNfyb8j%2Fy%2BJS9NvsuWpjOlQLdIlRnXG3LAW4sDeqPME4Wi3aQfpcGUSDofGsv9t%2BsKfJgG9JVbYOpt9T2w8dbfA%2BO%2BfM87hbdb%2F06hz8J%2Fe6sgeUAh8WFRYd%2B%2FWmytT18t5Gt%2F2a%2FPtL9M7sM%2F%3C%2Fdiagram%3E%3C%2Fmxfile%3E';
 
 const SAMPLE = `# Research Planning Session
 
@@ -126,9 +126,9 @@ $$\\int_0^1 x^2\\,dx = \\frac{1}{3}$$
 
 ## Draw.io diagrams stay part of the Markdown
 
-In draw.io, choose **File → Embed → IFrame**, then paste the generated iframe into the Markdown file.
+In draw.io, choose **File → Embed → Notion**, then paste the generated URL on its own line in the Markdown file.
 
-${DRAWIO_EXAMPLE}
+${DRAWIO_EXAMPLE_URL}
 
 ## The next iteration has one job
 
@@ -210,7 +210,7 @@ document.querySelector("#app").innerHTML = `
       <span class="deck-name" id="deck-name">Presentation</span>
       <button class="icon-button" id="fullscreen" aria-label="Toggle fullscreen">⛶</button>
     </div>
-    <main class="stage" id="stage"></main>
+    <main class="stage" id="stage" tabindex="-1"></main>
     <div class="deck-control-cluster">
       <nav class="deck-controls" aria-label="Slide controls">
         <button id="previous" aria-label="Previous slide">←</button>
@@ -336,6 +336,7 @@ function syncPdfExport(enabled = !document.body.classList.contains("has-layout-d
 
 function showError(error) {
   $("#error-message").textContent = error?.message || String(error);
+  document.title = "MarkdownPresent";
   setScreen("error");
 }
 
@@ -369,6 +370,7 @@ function finishPresentationExit() {
   allowHistoryExit = false;
   restorePresentationForClose = false;
   outline?.close();
+  document.title = "MarkdownPresent";
   setScreen("home");
 }
 function navigateHomeFromPresentation() {
@@ -492,6 +494,10 @@ async function loadDeck(repository, source, label, state = {}) {
       || documentModel.slides.find((slide) => slide.title)?.title?.textContent?.trim()
       || label
       || "Presentation";
+    const windowTitle = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
+      || label
+      || title;
+    document.title = `${windowTitle} — MarkdownPresent`;
     annotations = new AnnotationManager({
       stage: $("#stage"),
       deck: $(".deck-screen"),
@@ -564,6 +570,7 @@ async function loadDeck(repository, source, label, state = {}) {
     };
     $("#add-image").hidden = false;
     setScreen("deck");
+    $("#stage").focus({ preventScroll: true });
     suppressPositionPersistence = Boolean(savedPosition);
     await presentation.show(requestedIndex);
     suppressPositionPersistence = false;
