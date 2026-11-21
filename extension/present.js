@@ -335,6 +335,7 @@ async function boot() {
           session,
           slideModel: presentation.slides[slideIndex]?.model,
           slideIndex,
+          presentation,
           assetManager: manager,
           onUploadImage: async (file, editedSection) => {
             const references = [session.markdown, editedSection]

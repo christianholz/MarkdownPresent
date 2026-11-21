@@ -520,6 +520,7 @@ export class Presentation {
     this.printPreparationPromise = null;
     this.renderVersion = 0;
     this.handleStageClick = (event) => {
+      if (this.stage.closest(".deck-screen.is-live-editing")) return;
       if (this.atEnd && event.target.closest?.(".presentation-end-screen")) {
         event.preventDefault();
         this.exitEndScreen();
@@ -933,7 +934,7 @@ function instantiateTemplate(html) {
   return template.content.firstElementChild;
 }
 
-function documentFragmentFrom(model, index) {
+export function renderSlideElement(model, index) {
   const isTitleSlide = model.title?.tagName === "H1";
   const diagrams = model.diagrams || [];
   const mediaCount = model.images.length + diagrams.length;
@@ -995,3 +996,5 @@ function documentFragmentFrom(model, index) {
   }
   return slide;
 }
+
+const documentFragmentFrom = renderSlideElement;

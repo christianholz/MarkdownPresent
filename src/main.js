@@ -531,6 +531,7 @@ async function loadDeck(repository, source, label, state = {}) {
         session,
         slideModel: presentation.slides[slideIndex]?.model,
         slideIndex,
+        presentation,
         assetManager: manager,
         onSave: async (nextMarkdown, annotationState, details) => {
           session.applyMarkdown(nextMarkdown, annotationState, details.historyLabel, details);

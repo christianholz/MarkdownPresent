@@ -558,7 +558,7 @@ export class AnnotationManager {
 
   onContextMenu(event) {
     const slide = event.target.closest?.(".slide.is-active");
-    if (!slide || event.target.closest(".image-popover, .comment-editor, .is-inline-editing, .slide-comment, .slide-comment-card")) return;
+    if (!slide || slide.classList.contains("is-live-editing") || event.target.closest(".image-popover, .comment-editor, .is-inline-editing, .slide-comment, .slide-comment-card")) return;
     event.preventDefault();
     event.stopPropagation();
     this.dismissMenus();

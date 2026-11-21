@@ -79,7 +79,7 @@ export function promptForImageUrl(deck, onSubmit) {
 }
 
 export function handleDeckNavigationKeydown(event, presentation) {
-  if (document.querySelector(".deck-screen").hidden || document.querySelector(".deck-editor-dialog[open]") || event.target.matches("input, textarea, [contenteditable='true']")) return;
+  if (document.querySelector(".deck-screen").hidden || document.querySelector(".deck-screen.is-live-editing") || event.target.matches("input, textarea, [contenteditable='true']")) return;
   if (event.target.matches("button") && ["Enter", " "].includes(event.key)) return;
   const actions = {
     ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),
