@@ -125,7 +125,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .stage { position: absolute; inset: 0; display: grid; place-items: center; padding: 3.4vh 3.2vw; }
 .presentation-end-screen { position: fixed; z-index: 4; inset: 0; padding-top: 13px; border: 0; outline: 0; color: rgba(255,255,255,.82); background: #000; cursor: default; text-align: center; }
 .presentation-end-screen, .deck-name { font-size: 12px; font-weight: 400; line-height: normal; }
-.deck-screen.is-at-end .deck-topbar, .deck-screen.is-at-end .deck-control-cluster, .deck-screen.is-at-end .unsaved-comment-count, .deck-screen.is-at-end .progress-track { visibility: hidden; opacity: 0; pointer-events: none; }
+.deck-screen.is-at-end .deck-topbar, .deck-screen.is-at-end .deck-control-cluster, .deck-screen.is-at-end .unsaved-comment-count, .deck-screen.is-at-end .draft-asset-warning, .deck-screen.is-at-end .progress-track { visibility: hidden; opacity: 0; pointer-events: none; }
 .deck-screen.is-at-end .slide-outline, .deck-screen.is-at-end .history-panel, .deck-screen.is-at-end .resume-prompt, .deck-screen.is-at-end .pdf-preparing-status, .deck-screen.is-at-end .comment-save-menu { display: none !important; }
 .slide { --slide-title-after: 4.2cqh; --slide-h3-before: 1.6em; --slide-h4-before: 1.2em; --slide-h5-before: .8em; --slide-h6-before: .8em; --slide-heading-after: .35em; --slide-paragraph-gap: .55em; --slide-list-before: .25em; --slide-list-after: .75em; --slide-list-item-gap: .2em; --slide-nested-list-gap: .14em; --slide-caption-gap: 2.4cqh; display: none; position: relative; width: min(93vw, calc(91vh * 16 / 9)); aspect-ratio: 16 / 9; overflow: hidden; padding: clamp(28px, 4.1%, 72px); color: var(--slide-ink); background: var(--slide-paper); box-shadow: 0 22px 75px rgba(0,0,0,.34); caret-color: transparent; container-type: size; }
 .slide.is-active { display: flex; flex-direction: column; }
@@ -268,6 +268,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide-comment.is-expanded { z-index: 8; }
 .slide-comment-card.is-floating { display: block; }
 .unsaved-comment-count { position: fixed; z-index: 4; right: 3.2vw; bottom: 7px; left: auto; margin: 0; color: #8f3d35; font-size: 13px; font-weight: 600; line-height: 1; text-align: right; pointer-events: none; }
+.draft-asset-warning { position: fixed; z-index: 7; top: 58px; left: 50%; width: max-content; max-width: min(680px, calc(100vw - 28px)); margin: 0; padding: 10px 14px; border: 1px solid #cf9a51; border-radius: 9px; color: #493213; background: #fff3dc; box-shadow: 0 8px 28px rgba(0, 0, 0, .16); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; transform: translateX(-50%); }
 .image-loading { color: #8c8b85; font-size: 11px; }
 .image-error { padding: 10px; color: #9b3e36; font-size: 11px; text-align: center; }
 .slide.is-overflowing::before { content: "Content was fitted to its minimum size"; position: absolute; left: 4%; bottom: 2.6%; color: #9b3e36; font-size: 10px; }
@@ -303,6 +304,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .github-token-dialog { position: fixed; z-index: 35; top: 50%; left: 50%; display: grid; width: min(430px, calc(100vw - 30px)); gap: 11px; padding: 20px; border: 1px solid rgba(255,255,255,.15); border-radius: 15px; color: white; background: rgba(24,28,29,.98); box-shadow: 0 25px 80px rgba(0,0,0,.46); transform: translate(-50%, -50%); }
 .github-token-dialog strong { font-size: 16px; }
 .github-token-dialog p { margin: 0; color: rgba(255,255,255,.65); font-size: 13px; line-height: 1.45; }
+.github-token-dialog .image-url-error { color: #ffb7aa; }
 .github-token-dialog label { display: grid; gap: 6px; color: rgba(255,255,255,.72); font-size: 12px; }
 .github-token-dialog input { padding: 10px 11px; border: 1px solid rgba(255,255,255,.17); border-radius: 8px; outline: none; color: white; background: rgba(255,255,255,.08); font: 13px "SFMono-Regular", Consolas, monospace; }
 .github-token-dialog input:focus { border-color: rgba(255,255,255,.5); }
@@ -383,10 +385,15 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
   #slide-number { min-width: 43px; }
 }
 
+@media (max-width: 480px) {
+  .home-screen { padding-inline: 10px; }
+  .home-main { width: 100%; }
+}
+
 @media print {
   @page { size: 13.333333in 7.5in; margin: 0; }
   html, body, #app { width: 13.333333in; margin: 0; padding: 0; background: white; }
-  .deck-topbar, .deck-control-cluster, .slide-outline, .history-panel, .resume-prompt, .pdf-preparing-status, .unsaved-comment-count, .progress-track, .comment-context-menu, .comment-editor, .comment-save-menu, .slide-comment, .layout-diagnostics { display: none !important; }
+  .deck-topbar, .deck-control-cluster, .slide-outline, .history-panel, .resume-prompt, .pdf-preparing-status, .unsaved-comment-count, .draft-asset-warning, .progress-track, .comment-context-menu, .comment-editor, .comment-save-menu, .slide-comment, .layout-diagnostics { display: none !important; }
   .stage { display: none !important; }
   .deck-screen, .print-stage { position: static; display: block; width: 13.333333in; height: auto; overflow: visible; visibility: visible; background: white; padding: 0; }
   .slide { display: flex !important; flex-direction: column; width: 13.333333in !important; height: 7.5in !important; max-width: none; max-height: none; break-after: page; page-break-after: always; aspect-ratio: auto; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }

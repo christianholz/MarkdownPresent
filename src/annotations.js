@@ -509,6 +509,7 @@ export class AnnotationManager {
     this.onDiscard = onDiscard;
     this.discardLabel = discardLabel;
     this.stateChangePromise = Promise.resolve();
+    this.stateSaveError = false;
     this.comments = (annotationState?.comments || []).map(commentSnapshot);
     this.revision = annotationState?.revision ?? this.comments.length;
     this.savedRevision = annotationState?.savedRevision ?? 0;
@@ -1395,12 +1396,19 @@ export class AnnotationManager {
     this.stateChangePromise = this.stateChangePromise
       .catch(() => {})
       .then(() => this.onStateChange(state, details))
-      .catch(() => {});
+      .then(
+        () => { this.stateSaveError = false; },
+        () => { this.stateSaveError = state.dirty; },
+      )
+      .then(() => this.syncUnsavedIndicator());
   }
 
   syncUnsavedIndicator() {
     const count = Math.max(0, this.revision - this.savedRevision);
-    const message = changeStatusText(this.sourceChanged, this.editCount, count);
+    const status = changeStatusText(this.sourceChanged, this.editCount, count);
+    const message = this.stateSaveError
+      ? `${status ? `${status} • ` : ""}Draft autosave failed. Download changes before closing.`
+      : status;
     this.unsavedIndicator.hidden = !message;
     this.unsavedIndicator.textContent = message;
     if (message) this.positionUnsavedIndicator();

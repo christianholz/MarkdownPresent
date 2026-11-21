@@ -6,7 +6,7 @@ export function extensionDraftKey(source) {
   return `mdpresent:draft:${parts.join(":")}`;
 }
 
-export function extensionDraftRecord(baseMarkdown, state, updatedAt = Date.now(), assets = []) {
+export function extensionDraftRecord(baseMarkdown, state, updatedAt = Date.now(), localAssetPaths = []) {
   const record = {
     version: DRAFT_VERSION,
     baseMarkdown,
@@ -20,7 +20,7 @@ export function extensionDraftRecord(baseMarkdown, state, updatedAt = Date.now()
     },
     updatedAt,
   };
-  if (assets.length) record.assets = assets;
+  if (localAssetPaths.length) record.localAssetPaths = localAssetPaths;
   return record;
 }
 
@@ -28,4 +28,14 @@ export function restorableExtensionDraft(record, baseMarkdown) {
   if (!record || record.version !== DRAFT_VERSION || record.baseMarkdown !== baseMarkdown) return null;
   if (typeof record.markdown !== "string" || !record.annotationState) return null;
   return record;
+}
+
+export function draftWithoutAssetData(record) {
+  if (!Array.isArray(record?.assets)) return record;
+  const { assets, ...textDraft } = record;
+  const localAssetPaths = [...new Set([
+    ...(Array.isArray(textDraft.localAssetPaths) ? textDraft.localAssetPaths : []),
+    ...assets.map((asset) => asset?.path),
+  ].filter((path) => typeof path === "string" && path))];
+  return { ...textDraft, localAssetPaths };
 }

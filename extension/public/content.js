@@ -1,19 +1,54 @@
 (() => {
   const BUTTON_ATTRIBUTE = "data-mdpresent";
 
+  function pageMatchesSource(source) {
+    let parts;
+    try { parts = location.pathname.split("/").filter(Boolean).map(decodeURIComponent); }
+    catch { return false; }
+    if (parts[2] !== "blob" || parts[0] !== source.owner || parts[1] !== source.repo) return false;
+    const pageSource = parts.slice(3).join("/");
+    const refType = source.refType === "tags" ? "tags" : "heads";
+    return [`${source.ref}/${source.path}`, `refs/${refType}/${source.ref}/${source.path}`].includes(pageSource);
+  }
+
   function linkedSource() {
     const params = new URLSearchParams(location.hash.replace(/^#/, ""));
     const ref = params.get("mdpresent-ref") || "";
     const refType = params.get("mdpresent-ref-type") === "tags" ? "tags" : "heads";
     const path = params.get("mdpresent-path") || "";
-    const pageParts = location.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-    if (!ref || !/\.(md|markdown)$/i.test(path) || pageParts.length < 2) return null;
-    return { owner: pageParts[0], repo: pageParts[1], ref, refType, path };
+    try {
+      const parts = location.pathname.split("/").filter(Boolean);
+      const source = { owner: decodeURIComponent(parts[0] || ""), repo: decodeURIComponent(parts[1] || ""), ref, refType, path };
+      return ref && /\.(md|markdown)$/i.test(path) && pageMatchesSource(source) ? source : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function sourceFromPage() {
+    try {
+      const embedded = document.querySelector('script[data-target="react-app.embeddedData"]');
+      const payload = JSON.parse(embedded?.textContent || "null")?.payload;
+      const route = payload?.codeViewBlobLayoutRoute || payload?.codeViewLayoutRoute;
+      const ref = route?.refInfo?.name;
+      const path = route?.path;
+      if (!ref || !/\.(md|markdown)$/i.test(path || "")) return null;
+      const parts = location.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+      const source = {
+        owner: parts[0], repo: parts[1], ref, path,
+        refType: route.refInfo.refType === "tag" ? "tags" : "heads",
+      };
+      return pageMatchesSource(source) ? source : null;
+    } catch {
+      return null;
+    }
   }
 
   function sourceFromLocation() {
     const linked = linkedSource();
     if (linked) return linked;
+    const embedded = sourceFromPage();
+    if (embedded) return embedded;
     const parts = location.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     if (parts.length < 5 || !["blob", "tree"].includes(parts[2])) return null;
     const [owner, repo, , ref, ...pathParts] = parts;
@@ -75,9 +110,8 @@
       return false;
     }
     if (message?.type !== "mdpresent:fetch-asset") return false;
-    const current = sourceFromLocation();
     const requested = message.source;
-    if (!current || !requested || current.owner !== requested.owner || current.repo !== requested.repo || current.ref !== requested.ref) {
+    if (!requested || !pageMatchesSource(requested)) {
       sendResponse({ ok: false, error: "The source GitHub tab is no longer showing this presentation." });
       return false;
     }
@@ -129,7 +163,12 @@
       if (button.getAttribute("aria-disabled") === "true") return;
       button.setAttribute("aria-disabled", "true");
       try {
-        const payload = await sourcePayload(rawButton, source);
+        const pageSource = linkedSource() || sourceFromPage();
+        const sourceResult = pageSource ? { ok: true, source: pageSource } : await chrome.runtime.sendMessage({ type: "source:resolve" });
+        if (!sourceResult?.ok) throw new Error(sourceResult?.error || "The GitHub source could not be resolved.");
+        const resolved = sourceResult.source;
+        if (!resolved) throw new Error("The GitHub source could not be resolved.");
+        const payload = await sourcePayload(rawButton, resolved);
         const result = await chrome.runtime.sendMessage({ type: "mdpresent:open", payload });
         if (!result?.ok) throw new Error(result?.error || "The presentation tab could not open.");
       } catch (error) {

@@ -19,21 +19,11 @@ export function persistExampleMarkdown(markdown, sample, storage = globalThis.lo
   return markdown !== sample;
 }
 
-export function readExampleAssets(storage = globalThis.localStorage) {
+export function clearStoredExampleAssets(storage = globalThis.localStorage) {
   try {
-    const value = JSON.parse(storage?.getItem(EXAMPLE_ASSETS_STORAGE_KEY) || "[]");
-    return Array.isArray(value) ? value : [];
+    storage?.removeItem(EXAMPLE_ASSETS_STORAGE_KEY);
   } catch {
-    return [];
-  }
-}
-
-export function persistExampleAssets(assets, storage = globalThis.localStorage) {
-  try {
-    if (assets?.length) storage?.setItem(EXAMPLE_ASSETS_STORAGE_KEY, JSON.stringify(assets));
-    else storage?.removeItem(EXAMPLE_ASSETS_STORAGE_KEY);
-  } catch {
-    // The current deck and workspace download remain available if storage is full.
+    // Presentation remains available when storage is blocked.
   }
 }
 

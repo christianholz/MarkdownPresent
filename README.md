@@ -44,7 +44,9 @@ See the complete [feature-tour Markdown](examples/layout-test/feature-tour.md).
 
 Upload a folder, choose a Markdown file with its assets, or paste Markdown. Navigate with the arrow keys or Space; press `F` for fullscreen and `/` to search slides.
 
-Right-click a heading, paragraph, or list item to edit it in place or add a dated comment. `Enter` adds a line or list item, `Cmd/Ctrl+Enter` commits, `Escape` discards, and `Tab`/`Shift+Tab` changes list indentation. Undo, redo, edit history, image insertion, PDF export, slide links, and workspace downloads keep Markdown as the canonical source.
+Right-click a heading, paragraph, or list item to edit it in place or add a dated comment. `Enter` adds a line or list item, `Cmd/Ctrl+Enter` commits, `Escape` discards, and `Tab`/`Shift+Tab` changes list indentation. Undo, redo, edit history, image insertion, PDF export, slide links, and workspace downloads keep Markdown as the canonical source. On the website, **Add image** inserts an HTTPS URL to an image that already exists online.
+
+Open **Edit → Edit slide** for a rich text editor with headings, formatting, links, lists, ordinary tables, images, code blocks, quotes, and math. A horizontal rule in Markdown starts a new slide. The **Markdown** tab edits the same slide's source and offers inserts for presentation-specific syntax. Slides with syntax such as `<!-- TOC -->`, grouped tables, captions, and HTML open in Markdown view so those constructs remain intact. Saving changes only the current Markdown section and adds one undo step. On the website, use an existing image URL; in the GitHub extension, image file uploads use the deck's existing image folder convention.
 
 ## Chrome extension
 
@@ -52,7 +54,7 @@ Download the [latest Chrome extension](https://github.com/christianholz/Markdown
 
 The extension adds **Present** on GitHub Markdown pages, bookmarks repository folders, and opens a keyboard-searchable list of their recently changed Markdown files. Use `Cmd/Ctrl+Shift+P` to present the current Markdown file and `Cmd/Ctrl+Shift+Y` to find recent Markdown. Private repositories require a read-only GitHub token in the bookmark manager.
 
-It can also restore local drafts and save Markdown plus newly added images back to GitHub.
+It can also restore local text and comment drafts and save Markdown plus newly added image files back to GitHub. On save, new images go into the directory used by existing repository images in that Markdown file. If none are linked, they go into `assets/` beside the Markdown file. Image bytes stay in memory until you save or download the deck; reopening a draft requires adding those files again.
 
 ## Development
 

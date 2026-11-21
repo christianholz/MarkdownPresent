@@ -18,6 +18,17 @@ function decodeBase64Text(value) {
   return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
 }
 
+async function gitBlobSha(base64) {
+  const binary = atob(String(base64).replace(/\s/g, ""));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
+  const contents = new Uint8Array(header.length + bytes.length);
+  contents.set(header);
+  contents.set(bytes, header.length);
+  const digest = await crypto.subtle.digest("SHA-1", contents);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 async function api(path, token, options = {}) {
   const response = await fetch(`${API_ROOT}${path}`, {
     ...options,
@@ -63,11 +74,26 @@ export async function writeDeckToGitHub({ source, token, baseMarkdown, markdown,
     throw new Error("The Markdown changed on GitHub after this deck was opened. Reload it before saving, so those changes are not overwritten.");
   }
 
+  const newAssets = [];
+  for (const asset of assets) {
+    if (!asset?.path || !asset?.data) continue;
+    let remoteAsset = null;
+    try {
+      remoteAsset = await api(`${repository}/contents/${encodePath(asset.path)}?ref=${encodeURIComponent(source.ref)}`, token);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+    if (remoteAsset) {
+      if (remoteAsset.type !== "file" || remoteAsset.sha !== await gitBlobSha(asset.data)) {
+        throw new Error(`The image ${asset.path} now has different content on GitHub. Reload before saving so it is not overwritten.`);
+      }
+    } else newAssets.push(asset);
+  }
+
   const headCommit = await api(`${repository}/git/commits/${headSha}`, token);
   const markdownBlob = await createBlob(source, token, utf8Base64(markdown));
   const tree = [{ path: source.path, mode: "100644", type: "blob", sha: markdownBlob }];
-  for (const asset of assets) {
-    if (!asset?.path || !asset?.data) continue;
+  for (const asset of newAssets) {
     tree.push({
       path: asset.path,
       mode: "100644",

@@ -1,14 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { extractFrontMatter, extractUnsupportedMediaReferences, splitSlides } from "../src/markdown.js";
 import { resolveRepoPath, sameRepoGithubPath } from "../src/paths.js";
 import { fittedImageStackWidth, SLIDE_SPACING_GLUE, spacingGlueValue } from "../src/layout.js";
 import { slideOutlineLabel } from "../src/slide-outline.js";
 import { AssetManager } from "../src/assets.js";
-import { annotatedMarkdown, changeStatusText, commentsMarkdown, hasEditableListContent, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
-import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
-import { EXAMPLE_MARKDOWN_STORAGE_KEY, persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "../src/example-storage.js";
-import { continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
+import { AnnotationManager, annotatedMarkdown, changeStatusText, commentsMarkdown, hasEditableListContent, markdownInsertionOffset, remapCommentOffsets, replaceMarkdownFragment, replaceMarkdownRange } from "../src/annotations.js";
+import { draftWithoutAssetData, extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
+import { clearStoredExampleAssets, EXAMPLE_ASSETS_STORAGE_KEY, EXAMPLE_MARKDOWN_STORAGE_KEY, persistExampleMarkdown, readExampleMarkdown, resetExampleMarkdown } from "../src/example-storage.js";
+import { Presentation, continuationContextText, continuationListBreakPenalty, continuationTitleText } from "../src/presentation.js";
+import { insertImageUrlIntoSlide, normalizeImageUrl, preferredImageFolder, WorkingRepository } from "../src/asset-workspace.js";
 
 describe("Markdown slide parsing", () => {
   it("covers all nine layouts in the example deck", () => {
@@ -63,6 +64,12 @@ describe("Markdown slide parsing", () => {
     expect(splitSlides("# Demo\n\n```md\n## not a slide\n---\n```\n\n## Real slide")).toHaveLength(2);
   });
 
+  it("keeps shorter fence markers and indented code inside their slides", () => {
+    const source = "# Demo\n\n````md\n```\n## still code\n---\n````\n\n    ---\n\n## Real slide";
+    expect(splitSlides(source)).toHaveLength(2);
+    expect(splitSlides(source)[0]).toContain("## still code");
+  });
+
   it("flags embedded media types the slide renderer cannot display", () => {
     const markdown = '<video controls src="media/demo.mp4"></video>\n<audio src="audio/clip.ogg"></audio>';
     expect(extractUnsupportedMediaReferences(markdown)).toEqual(["media/demo.mp4", "audio/clip.ogg"]);
@@ -94,6 +101,15 @@ describe("example Markdown persistence", () => {
     persistExampleMarkdown("# Edited", "# Default", storage);
     resetExampleMarkdown(storage);
     expect(readExampleMarkdown("# Default", storage)).toBe("# Default");
+  });
+
+  it("clears previously stored image bytes without removing the text draft", () => {
+    const storage = memoryStorage();
+    persistExampleMarkdown("# Edited", "# Default", storage);
+    storage.setItem(EXAMPLE_ASSETS_STORAGE_KEY, '[{"path":"assets/image.png","data":"aW1hZ2U="}]');
+    clearStoredExampleAssets(storage);
+    expect(storage.values.has(EXAMPLE_ASSETS_STORAGE_KEY)).toBe(false);
+    expect(readExampleMarkdown("# Default", storage)).toBe("# Edited");
   });
 });
 
@@ -131,6 +147,29 @@ describe("extension draft recovery", () => {
     expect(restorableExtensionDraft(record, "# Changed upstream")).toBeNull();
     expect(restorableExtensionDraft({ ...record, version: 2 }, "# Original")).toBeNull();
   });
+
+  it("stores only paths for images added during an editing session", () => {
+    const state = {
+      markdown: "# Edited\n\n![Chart](./assets/chart.png)",
+      originalSourceMarkdown: "# Original",
+      comments: [], revision: 1, savedRevision: 0, editCount: 1,
+    };
+    const record = extensionDraftRecord("# Original", state, 123, ["slides/assets/chart.png"]);
+    expect(record.localAssetPaths).toEqual(["slides/assets/chart.png"]);
+    expect(record).not.toHaveProperty("assets");
+    expect(restorableExtensionDraft(record, "# Original")).toBe(record);
+  });
+
+  it("removes image bytes from an older saved draft while preserving its text", () => {
+    const old = { version: 1, markdown: "# Edited", localAssetPaths: ["assets/one.png"], assets: [
+      { path: "assets/one.png", data: "b25l" },
+      { path: "assets/two.png", data: "dHdv" },
+    ] };
+    expect(draftWithoutAssetData(old)).toEqual({
+      version: 1, markdown: "# Edited", localAssetPaths: ["assets/one.png", "assets/two.png"],
+    });
+    expect(old.assets).toHaveLength(2);
+  });
 });
 
 describe("repository paths", () => {
@@ -139,10 +178,18 @@ describe("repository paths", () => {
     expect(resolveRepoPath("_projects/2026/talk.md", "/assets/a.png")).toBe("assets/a.png");
   });
 
+  it("rejects paths that climb above the repository root", () => {
+    expect(() => resolveRepoPath("slides.md", "../outside.png")).toThrow(/escapes the repository root/);
+    expect(() => resolveRepoPath("talks/slides.md", "%2e%2e/%2e%2e/outside.png")).toThrow(/escapes the repository root/);
+    expect(resolveRepoPath("talks/slides.md", "../shared.png")).toBe("shared.png");
+  });
+
   it("recognizes same-repository GitHub blob and raw image URLs", () => {
     const source = { owner: "eth-siplab-team", repo: "deck", ref: "main" };
     expect(sameRepoGithubPath("https://github.com/eth-siplab-team/deck/blob/main/images/a.png", source)).toBe("images/a.png");
     expect(sameRepoGithubPath("/eth-siplab-team/deck/raw/refs/heads/main/images/a.png", source)).toBe("images/a.png");
+    expect(sameRepoGithubPath("https://github.com/eth-siplab-team/deck/raw/refs/tags/v1/images/a.png", { ...source, ref: "v1", refType: "tags" })).toBe("images/a.png");
+    expect(sameRepoGithubPath("https://github.com/eth-siplab-team/deck/blob/main/images/100%25.png", source)).toBe("images/100%.png");
   });
 
   it("allows externally hosted images for standalone decks", () => {
@@ -151,6 +198,22 @@ describe("repository paths", () => {
       kind: "external",
       url: "https://example.com/image.png",
     });
+  });
+
+  it("retries an asset after a transient repository failure", async () => {
+    let attempts = 0;
+    const manager = new AssetManager({
+      documentFile: { name: "slides.md" },
+      async readBlob() {
+        attempts += 1;
+        if (attempts === 1) throw new Error("Temporary failure");
+        return new Blob(["image"], { type: "image/png" });
+      },
+    }, { path: "slides.md" });
+    await expect(manager.getUrl("image.png")).rejects.toThrow("Temporary failure");
+    await expect(manager.getUrl("image.png")).resolves.toMatch(/^blob:/);
+    expect(attempts).toBe(2);
+    manager.dispose();
   });
 });
 
@@ -210,6 +273,116 @@ describe("automatic continuation slides", () => {
   });
 });
 
+describe("slide assets", () => {
+  it("uses the most common existing image subfolder beside the Markdown file", () => {
+    const source = { owner: "owner", repo: "repo", ref: "main", path: "talks/slides.md" };
+    expect(preferredImageFolder(source, [
+      "./figures/one.png", "figures/two.jpg", "./assets/logo.png", "https://example.com/external/image.png",
+    ])).toBe("figures");
+    expect(preferredImageFolder(source, ["../shared/chart.png"])).toBe("../shared");
+    expect(preferredImageFolder(source, ["logo.png"])).toBe(".");
+    expect(preferredImageFolder(source, ["https://example.com/images/one.png"])).toBe("assets");
+    expect(preferredImageFolder(source, ["https://github.com/owner/repo/blob/main/talks/plots/chart.png"]))
+      .toBe("plots");
+  });
+
+  it("stages an extension image in the Markdown file's assets folder", async () => {
+    const image = Object.assign(new Blob(["image"], { type: "image/png" }), { name: "My chart.png" });
+    const repository = new WorkingRepository({ documentFile: null, hasBlob: async () => false }, { path: "talks/slides.md" });
+    const asset = await repository.addFile(image);
+    expect(asset).toEqual({ reference: "./assets/My-chart.png", path: "talks/assets/My-chart.png", alt: "My chart" });
+    expect(await repository.readBlob(asset.path)).toBe(image);
+    expect(await repository.serializedAssets()).toEqual([{
+      path: "talks/assets/My-chart.png", type: "image/png", data: btoa("image"),
+    }]);
+  });
+
+  it("avoids replacing an existing GitHub image with the same filename", async () => {
+    const image = Object.assign(new Blob(["new"], { type: "image/png" }), { name: "chart.png" });
+    const repository = new WorkingRepository({
+      documentFile: null,
+      hasBlob: async (path) => path === "talks/figures/chart.png",
+    }, { path: "talks/slides.md" });
+    expect(await repository.addFile(image, ["./figures/old.png"])).toMatchObject({
+      path: "talks/figures/chart-2.png", reference: "./figures/chart-2.png",
+    });
+  });
+
+  it("places a new image beside the Markdown when existing images are there", async () => {
+    const image = Object.assign(new Blob(["new"], { type: "image/png" }), { name: "new.png" });
+    const repository = new WorkingRepository({ documentFile: null, hasBlob: async () => false }, { path: "talks/slides.md" });
+    expect(await repository.addFile(image, ["./old.png"])).toMatchObject({
+      path: "talks/new.png", reference: "./new.png",
+    });
+    expect(await repository.addFile(image, ["../shared/old.png"])).toMatchObject({
+      path: "shared/new.png", reference: "../shared/new.png",
+    });
+  });
+
+  it("does not include an image removed from the Markdown in a GitHub save", async () => {
+    const repository = new WorkingRepository({ documentFile: null }, { path: "slides.md" });
+    repository.assets.set("assets/used.png", new Blob(["used"], { type: "image/png" }));
+    repository.assets.set("assets/removed.png", new Blob(["removed"], { type: "image/png" }));
+    const assets = await repository.serializedAssets(new Set(["assets/used.png"]));
+    expect(assets).toEqual([{ path: "assets/used.png", type: "image/png", data: btoa("used") }]);
+  });
+
+  it("retries an image when a previous load failed", async () => {
+    let image = null;
+    let failures = 0;
+    let attempts = 0;
+    const slot = {
+      dataset: { imageSrc: "image.png", imageAlt: "Figure" },
+      querySelector: () => image,
+      replaceChildren: (loadedImage) => { image = loadedImage; },
+      classList: { add: () => { failures += 1; }, remove: () => {} },
+      textContent: "",
+    };
+    const slide = {
+      element: { classList: { contains: () => false }, querySelectorAll: () => [slot] },
+      diagramsLoaded: true,
+      assetsLoaded: false,
+    };
+    const presentation = {
+      slides: [slide], index: 0, fitCurrent: () => {},
+      assetManager: {
+        async getUrl() {
+          attempts += 1;
+          if (attempts === 1) throw new Error("Temporary failure");
+          return "blob:ready";
+        },
+      },
+    };
+    vi.stubGlobal("document", { createElement: () => ({ decode: async () => {}, setAttribute: () => {} }) });
+    try {
+      await Presentation.prototype.loadAssets.call(presentation, 0);
+      expect(slide.assetsLoaded).toBe(false);
+      expect(failures).toBe(1);
+      await Presentation.prototype.loadAssets.call(presentation, 0);
+      expect(slide.assetsLoaded).toBe(true);
+      expect(image.src).toBe("blob:ready");
+      expect(attempts).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("image URL insertion", () => {
+  it("inserts an HTTPS URL as Markdown without image data", () => {
+    const markdown = "# Title\n\nText";
+    const result = insertImageUrlIntoSlide(markdown, { sourceEnd: markdown.length }, "https://example.com/my-chart.png?size=2");
+    expect(result.markdown).toBe("# Title\n\nText\n\n![my chart](<https://example.com/my-chart.png?size=2>)");
+    expect(result.annotationState.editCount).toBe(1);
+  });
+
+  it("rejects inline image data and insecure URLs", () => {
+    expect(() => normalizeImageUrl("data:image/png;base64,AAAA")).toThrow(/HTTPS image URL/);
+    expect(() => normalizeImageUrl("http://example.com/image.png")).toThrow(/HTTPS image URL/);
+    expect(() => normalizeImageUrl("https://user:pass@example.com/image.png")).toThrow(/HTTPS image URL/);
+  });
+});
+
 describe("Markdown-backed editing", () => {
   it("replaces the canonical section rather than rendered HTML", () => {
     const source = "# Deck\n\n## Findings\n\n- One\n- Two\n\n## Next\n\nDone";
@@ -258,6 +431,30 @@ describe("Markdown-backed editing", () => {
 });
 
 describe("presentation comments", () => {
+  it("shows a draft save failure and clears it after a successful retry", async () => {
+    const manager = {
+      stateChangePromise: Promise.resolve(),
+      stateSaveError: false,
+      sourceMarkdown: "# Edited",
+      originalSourceMarkdown: "# Original",
+      comments: [],
+      revision: 0,
+      savedRevision: 0,
+      editCount: 1,
+      dirty: true,
+      syncUnsavedIndicator: vi.fn(),
+      onStateChange: async () => { throw new Error("Storage full"); },
+    };
+    AnnotationManager.prototype.notifyStateChange.call(manager);
+    await manager.stateChangePromise;
+    expect(manager.stateSaveError).toBe(true);
+    manager.onStateChange = async () => {};
+    AnnotationManager.prototype.notifyStateChange.call(manager);
+    await manager.stateChangePromise;
+    expect(manager.stateSaveError).toBe(false);
+    expect(manager.syncUnsavedIndicator).toHaveBeenCalledTimes(2);
+  });
+
   it("summarizes Markdown edits and added comments in one status", () => {
     expect(changeStatusText(true, 1, 0)).toBe("Markdown modified (1 edit)");
     expect(changeStatusText(true, 3, 2)).toBe("Markdown modified (3 edits) • 2 comments added");

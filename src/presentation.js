@@ -665,13 +665,17 @@ export class Presentation {
       slide.diagramsLoaded = true;
       await Promise.allSettled([...slide.element.querySelectorAll("[data-drawio-src]")].map(loadDiagramFrame));
     }
+    if (slide.assetsLoading) {
+      await slide.assetsLoading;
+      if (index === this.index) this.fitCurrent();
+      return;
+    }
     if (slide.assetsLoaded) {
       if (index === this.index) this.fitCurrent();
       return;
     }
-    slide.assetsLoaded = true;
-    const slots = [...slide.element.querySelectorAll("[data-image-src]")];
-    await Promise.allSettled(slots.map(async (slot) => {
+    const slots = [...slide.element.querySelectorAll("[data-image-src]")].filter((slot) => !slot.querySelector("img"));
+    const loading = Promise.all(slots.map(async (slot) => {
       try {
         const url = await this.assetManager.getUrl(slot.dataset.imageSrc);
         const image = document.createElement("img");
@@ -681,13 +685,19 @@ export class Presentation {
         image.tabIndex = 0;
         image.setAttribute("role", "button");
         image.setAttribute("aria-label", image.alt ? `Enlarge image: ${image.alt}` : "Enlarge image");
-        await image.decode().catch(() => {});
+        await image.decode();
         slot.replaceChildren(image);
+        slot.classList.remove("image-error");
+        return true;
       } catch (error) {
         slot.classList.add("image-error");
         slot.textContent = error.message;
+        return false;
       }
-    }));
+    })).then((results) => { slide.assetsLoaded = results.every(Boolean); });
+    slide.assetsLoading = loading;
+    try { await loading; }
+    finally { if (slide.assetsLoading === loading) slide.assetsLoading = null; }
     if (index === this.index) this.fitCurrent();
   }
 

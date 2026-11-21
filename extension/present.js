@@ -6,7 +6,7 @@ import { Presentation } from "../src/presentation.js";
 import { GithubPageRepository } from "../src/repository.js";
 import { SlideOutline } from "../src/slide-outline.js";
 import { AnnotationManager } from "../src/annotations.js";
-import { extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
+import { draftWithoutAssetData, extensionDraftKey, extensionDraftRecord, restorableExtensionDraft } from "../src/drafts.js";
 import { DocumentSession } from "../src/document-session.js";
 import { HistoryController, resolveHistorySlide } from "../src/history.js";
 import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresentationPosition } from "../src/positions.js";
@@ -14,6 +14,8 @@ import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "
 import { exportPresentationPdf } from "../src/pdf-export.js";
 import { requestGitHubToken, writeDeckToGitHub } from "../src/github-writeback.js";
 import { LayoutDiagnostics } from "../src/diagnostics.js";
+import { copyText, handleDeckNavigationKeydown, setDeckEditControlsOpen, syncPdfExport, toggleFullscreen } from "../src/deck-controls.js";
+import { resolveRepoPath } from "../src/paths.js";
 
 document.querySelector("#app").innerHTML = `
   <section class="loading-screen" data-screen="loading">
@@ -44,7 +46,8 @@ document.querySelector("#app").innerHTML = `
         <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false" title="Edit history">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6M12 8v4l2.8 1.7"/></svg>
         </button>
-        <button id="add-image" aria-label="Add an image to this slide" title="Add image"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
+        <button id="edit-slide" aria-label="Edit this slide" title="Edit slide">✎</button>
+        <button id="add-image" aria-label="Add an image file to this slide" title="Add image file"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
         <input id="image-input" type="file" accept="image/*" hidden />
         <button id="download-comments" aria-label="Download changes" title="Download changes" hidden>⤓</button>
         <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">
@@ -53,6 +56,7 @@ document.querySelector("#app").innerHTML = `
       </nav>
     </div>
     <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
+    <p id="draft-asset-warning" class="draft-asset-warning" role="alert" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
       <input class="slide-outline-search" id="outline-search" type="search" placeholder="Search slides…" aria-label="Search slides" autocomplete="off" />
@@ -83,6 +87,7 @@ let historyController;
 let positionKey;
 let suppressPositionPersistence = false;
 let activeAssetHandler = null;
+let activeDeckEditorHandler = null;
 let diagnostics;
 
 function setScreen(name) {
@@ -90,32 +95,7 @@ function setScreen(name) {
   if (name !== "deck") setEditControlsOpen(false);
 }
 
-function setEditControlsOpen(open) {
-  const expanded = Boolean(open);
-  const controls = $("#edit-controls");
-  const cluster = $(".deck-control-cluster");
-  if (expanded) {
-    controls.hidden = false;
-    controls.inert = false;
-    controls.setAttribute("aria-hidden", "false");
-    const gap = Number.parseFloat(getComputedStyle(cluster).getPropertyValue("--edit-controls-gap")) || 8;
-    cluster.style.setProperty("--edit-controls-shift", `${(controls.offsetWidth + gap) / 2}px`);
-    controls.getBoundingClientRect();
-  } else {
-    controls.inert = true;
-    controls.setAttribute("aria-hidden", "true");
-  }
-  $("#edit-toggle").setAttribute("aria-expanded", String(expanded));
-  $("#edit-toggle").classList.toggle("is-active", expanded);
-  cluster.classList.toggle("is-edit-open", expanded);
-  if (!expanded) historyController?.close();
-}
-
-function syncPdfExport(enabled = !document.body.classList.contains("has-layout-diagnostics")) {
-  const button = $("#export-pdf");
-  button.disabled = !enabled;
-  button.title = enabled ? "Export PDF" : "Turn off layout diagnostics before exporting PDF";
-}
+function setEditControlsOpen(open) { setDeckEditControlsOpen(open, () => historyController?.close()); }
 
 function showError(error) {
   $("#error-message").textContent = error?.message || String(error);
@@ -130,29 +110,11 @@ function updateSlideHash(index) {
   history.replaceState(null, "", `#${hash}`);
 }
 
-async function copyText(text) {
-  if (!text) return;
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.append(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  textarea.remove();
-}
-
 function githubUploadUrl(source) {
   const directory = source.path.split("/").slice(0, -1);
   const parts = [source.owner, source.repo, "upload", source.ref, ...directory]
     .map((part) => encodeURIComponent(part));
   return `https://github.com/${parts.join("/")}`;
-}
-
-async function toggleFullscreen() {
-  if (document.fullscreenElement) await document.exitFullscreen();
-  else await $(".deck-screen").requestFullscreen();
 }
 
 async function boot() {
@@ -170,16 +132,42 @@ async function boot() {
     const storedPosition = (await chrome.storage.local.get(positionKey))[positionKey] || null;
     const draftKey = extensionDraftKey(payload.source);
     const storedDraft = originalMarkdown ? (await chrome.storage.local.get(draftKey))[draftKey] : null;
-    const restoredDraft = restorableExtensionDraft(storedDraft, originalMarkdown);
+    const textDraft = draftWithoutAssetData(storedDraft);
+    if (textDraft !== storedDraft) await chrome.storage.local.set({ [draftKey]: textDraft });
+    const restoredDraft = restorableExtensionDraft(textDraft, originalMarkdown);
     let preserveStaleDraft = Boolean(storedDraft && !restoredDraft);
+    const previousLocalAssetPaths = new Set(Array.isArray(restoredDraft?.localAssetPaths) ? restoredDraft.localAssetPaths : []);
     let draftWrite = Promise.resolve();
     let repository;
+    const referencedLocalAssetPaths = (markdown) => {
+      const references = processMarkdown(markdown, payload.source).slides.flatMap((slide) => slide.images.map((image) => image.src));
+      const referencedPaths = new Set();
+      for (const reference of references) {
+        if (/^https?:/i.test(reference)) continue;
+        try { referencedPaths.add(resolveRepoPath(payload.source.path, reference)); }
+        catch { /* Invalid paths cannot match an earlier local upload. */ }
+      }
+      return [...new Set([...previousLocalAssetPaths, ...repository.assets.keys()])].filter((path) => referencedPaths.has(path));
+    };
+    const missingLocalAssetPaths = (markdown) => referencedLocalAssetPaths(markdown).filter((path) => !repository.assets.has(path));
+    const updateAssetWarning = (markdown) => {
+      const missing = missingLocalAssetPaths(markdown);
+      const warning = $("#draft-asset-warning");
+      if (missing.length) warning.textContent = `Images added in the previous session are unavailable: ${missing.join(", ")}. Re-add them before saving or downloading this deck.`;
+      warning.hidden = !missing.length;
+    };
+    const ensureAssetsAvailable = () => {
+      const missing = missingLocalAssetPaths(session.markdown);
+      if (missing.length) throw new Error(`Re-add these images before saving or downloading: ${missing.join(", ")}`);
+    };
     const persistDraft = (state) => {
       draftWrite = draftWrite.catch(() => {}).then(async () => {
         if (state.dirty) {
+          const localAssetPaths = referencedLocalAssetPaths(state.markdown);
+          await chrome.storage.local.set({
+            [draftKey]: extensionDraftRecord(remoteMarkdown, state, Date.now(), localAssetPaths),
+          });
           preserveStaleDraft = false;
-          const assets = await repository.serializedAssets();
-          await chrome.storage.local.set({ [draftKey]: extensionDraftRecord(remoteMarkdown, state, Date.now(), assets) });
         } else if (!preserveStaleDraft) {
           await chrome.storage.local.remove(draftKey);
         }
@@ -187,14 +175,16 @@ async function boot() {
       return draftWrite;
     };
     const discardDraft = () => {
-      preserveStaleDraft = false;
-      draftWrite = draftWrite.catch(() => {}).then(() => chrome.storage.local.remove(draftKey));
+      draftWrite = draftWrite.catch(() => {}).then(async () => {
+        preserveStaleDraft = false;
+        previousLocalAssetPaths.clear();
+        await chrome.storage.local.remove(draftKey);
+        $("#draft-asset-warning").hidden = true;
+      });
       return draftWrite;
     };
     repository = new WorkingRepository(
-      new GithubPageRepository(payload.source, originalMarkdown, payload.sourceTabId),
-      payload.source,
-      restoredDraft?.assets,
+      new GithubPageRepository(payload.source, originalMarkdown, payload.sourceTabId), payload.source,
     );
     const manager = new AssetManager(repository, payload.source, CONFIG.presentation.assetConcurrency);
     presentation = new Presentation({
@@ -238,6 +228,7 @@ async function boot() {
       if (!documentModel.slides.length) throw new Error("The GitHub file does not contain any slide content.");
       await presentation.create(documentModel, manager);
       annotations?.destroy();
+      updateAssetWarning(session.markdown);
       const title = documentModel.slides.find((slide) => slide.title?.tagName === "H1")?.title?.textContent?.trim()
         || documentModel.slides.find((slide) => slide.title)?.title?.textContent?.trim()
         || payload.source.path.split("/").pop()
@@ -264,6 +255,7 @@ async function boot() {
         onDiscard: originalMarkdown ? discardDraft : undefined,
         onUpload: () => chrome.tabs.create({ url: githubUploadUrl(payload.source) }),
         onWriteBack: originalMarkdown ? async () => {
+          ensureAssetsAvailable();
           const tokenRecord = await chrome.storage.local.get("mdpresent:github-token");
           const storedToken = tokenRecord["mdpresent:github-token"] || "";
           const token = storedToken || await requestGitHubToken($(".deck-screen"));
@@ -275,7 +267,7 @@ async function boot() {
               token,
               baseMarkdown: remoteMarkdown,
               markdown: session.markdown,
-              assets: await repository.serializedAssets(),
+              assets: await repository.serializedAssets(new Set(referencedLocalAssetPaths(session.markdown))),
             });
           } catch (error) {
             if (error.status === 401) {
@@ -287,12 +279,15 @@ async function boot() {
           remoteMarkdown = session.markdown;
           await discardDraft();
         } : undefined,
-        onDownloadWorkspace: () => downloadDeckWorkspace({
-          repository,
-          source: payload.source,
-          markdown: session.markdown,
-          references: [...new Set(documentModel.slides.flatMap((slide) => slide.images.map((image) => image.src)))],
-        }),
+        onDownloadWorkspace: () => {
+          ensureAssetsAvailable();
+          return downloadDeckWorkspace({
+            repository,
+            source: payload.source,
+            markdown: session.markdown,
+            references: [...new Set(documentModel.slides.flatMap((slide) => slide.images.map((image) => image.src)))],
+          });
+        },
         onMarkdownChange: originalMarkdown
           ? (nextMarkdown, details = {}) => {
             session.applyMarkdown(nextMarkdown, details.annotationState, details.historyLabel, details);
@@ -321,7 +316,8 @@ async function boot() {
       activeAssetHandler = originalMarkdown ? async (file) => {
         const slideIndex = presentation.index;
         const sourceStart = presentation.slides[slideIndex]?.model.sourceEnd;
-        const asset = await repository.addFile(file);
+        const references = documentModel.slides.flatMap((slide) => slide.images.map((image) => image.src));
+        const asset = await repository.addFile(file, references);
         const result = insertImageIntoSlide(
           session.markdown,
           presentation.slides[presentation.index]?.model,
@@ -332,6 +328,29 @@ async function boot() {
         await persistDraft(session.snapshot());
         await renderDeck(presentation.index, true);
       } : null;
+      activeDeckEditorHandler = originalMarkdown ? async () => {
+        const slideIndex = Math.min(presentation.index, presentation.slides.length - 1);
+        const { openDeckEditor } = await import("../src/deck-editor.js");
+        await openDeckEditor({
+          session,
+          slideModel: presentation.slides[slideIndex]?.model,
+          slideIndex,
+          assetManager: manager,
+          onUploadImage: async (file, editedSection) => {
+            const references = [session.markdown, editedSection]
+              .flatMap((markdown) => processMarkdown(markdown, payload.source).slides
+                .flatMap((slide) => slide.images.map((image) => image.src)));
+            const asset = await repository.addFile(file, references);
+            return asset.reference;
+          },
+          onSave: async (nextMarkdown, annotationState, details) => {
+            session.applyMarkdown(nextMarkdown, annotationState, details.historyLabel, details);
+            await persistDraft(session.snapshot());
+            await renderDeck(slideIndex, true);
+          },
+        });
+      } : null;
+      $("#edit-slide").hidden = !activeDeckEditorHandler;
       $("#add-image").hidden = !activeAssetHandler;
       $("#deck-name").textContent = payload.source.path.split("/").pop() || "Presentation";
       setScreen("deck");
@@ -373,6 +392,7 @@ $("#fullscreen").addEventListener("click", toggleFullscreen);
 $("#edit-toggle").addEventListener("click", () => {
   setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
 });
+$("#edit-slide").addEventListener("click", () => { if (activeDeckEditorHandler) void activeDeckEditorHandler().catch(showError); });
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
 const addImageButton = $("#add-image");
 addImageButton.addEventListener("pointerleave", () => addImageButton.classList.remove("is-hover-suppressed"));
@@ -401,15 +421,6 @@ $("#resume-start").addEventListener("click", () => {
   void presentation?.show(0);
 });
 
-document.addEventListener("keydown", (event) => {
-  if ($(".deck-screen").hidden || event.target.matches("input, textarea, [contenteditable='true']")) return;
-  if (event.target.matches("button") && ["Enter", " "].includes(event.key)) return;
-  const actions = {
-    ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),
-    ArrowLeft: () => presentation?.previous(), ArrowUp: () => presentation?.previous(), PageUp: () => presentation?.previous(),
-    Home: () => presentation?.first(), End: () => presentation?.last(), f: toggleFullscreen, F: toggleFullscreen,
-  };
-  if (actions[event.key]) { event.preventDefault(); actions[event.key](); }
-});
+document.addEventListener("keydown", (event) => handleDeckNavigationKeydown(event, presentation));
 
 boot();

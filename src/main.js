@@ -1,23 +1,22 @@
 import "./style.css";
 import { InlineRepository, LocalRepository } from "./repository.js";
-import { extractUnsupportedMediaReferences, processMarkdown } from "./markdown.js";
 import { AssetManager } from "./assets.js";
 import { loadImageMeasurements, Presentation } from "./presentation.js";
 import { SlideOutline } from "./slide-outline.js";
 import { CONFIG } from "./config.js";
 import { AnnotationManager } from "./annotations.js";
 import {
-  persistExampleAssets,
+  clearStoredExampleAssets,
   persistExampleMarkdown,
-  readExampleAssets,
   readExampleMarkdown,
   resetExampleMarkdown,
 } from "./example-storage.js";
 import { DocumentSession } from "./document-session.js";
 import { HistoryController, resolveHistorySlide } from "./history.js";
-import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "./asset-workspace.js";
+import { downloadDeckWorkspace, insertImageUrlIntoSlide } from "./asset-workspace.js";
 import { exportPresentationPdf } from "./pdf-export.js";
 import { LayoutDiagnostics } from "./diagnostics.js";
+import { copyText, handleDeckNavigationKeydown, promptForImageUrl, setDeckEditControlsOpen, syncPdfExport, toggleFullscreen } from "./deck-controls.js";
 import {
   pastedSlideUrl,
   positionStorageKey,
@@ -229,8 +228,8 @@ document.querySelector("#app").innerHTML = `
         <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false" title="Edit history">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6M12 8v4l2.8 1.7"/></svg>
         </button>
-        <button id="add-image" aria-label="Add an image to this slide" title="Add image"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
-        <input id="image-input" type="file" accept="image/*" hidden />
+        <button id="edit-slide" aria-label="Edit this slide" title="Edit slide">✎</button>
+        <button id="add-image" aria-label="Add an image URL to this slide" title="Add image URL"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
         <button id="download-comments" aria-label="Download changes" title="Download changes" hidden>⤓</button>
         <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7Z"/><path d="M14 3v5h4M12 11v6m-3-3 3 3 3-3"/></svg>
@@ -262,6 +261,8 @@ document.querySelector("#app").innerHTML = `
   </section>`;
 
 const $ = (selector) => document.querySelector(selector);
+let markdownModulePromise;
+function markdownTools() { return markdownModulePromise ||= import("./markdown.js"); }
 let presentation;
 let outline;
 let annotations;
@@ -269,11 +270,12 @@ let historyController;
 let activePositionKey = null;
 let activeCopySlideLink = null;
 let suppressPositionPersistence = false;
-let activeAssetHandler = null;
+let activeImageUrlHandler = null;
+let activeDeckEditorHandler = null;
 let diagnostics;
 let selectedFiles = [];
 let markdownFiles = [];
-let pastedAssets = readExampleAssets();
+clearStoredExampleAssets();
 const HISTORY_SCREEN_KEY = "mdpresentScreen";
 const HISTORY_SLIDE_KEY = "mdpresentSlide";
 let presentationHistoryActive = false;
@@ -292,11 +294,6 @@ function savePastedMarkdown(markdown) {
   syncExampleResetButton();
 }
 
-function savePastedAssets(assets) {
-  pastedAssets = assets;
-  persistExampleAssets(assets);
-}
-
 syncExampleResetButton();
 
 function setScreen(name) {
@@ -307,32 +304,7 @@ function setScreen(name) {
   }
 }
 
-function setEditControlsOpen(open) {
-  const expanded = Boolean(open);
-  const controls = $("#edit-controls");
-  const cluster = $(".deck-control-cluster");
-  if (expanded) {
-    controls.hidden = false;
-    controls.inert = false;
-    controls.setAttribute("aria-hidden", "false");
-    const gap = Number.parseFloat(getComputedStyle(cluster).getPropertyValue("--edit-controls-gap")) || 8;
-    cluster.style.setProperty("--edit-controls-shift", `${(controls.offsetWidth + gap) / 2}px`);
-    controls.getBoundingClientRect();
-  } else {
-    controls.inert = true;
-    controls.setAttribute("aria-hidden", "true");
-  }
-  $("#edit-toggle").setAttribute("aria-expanded", String(expanded));
-  $("#edit-toggle").classList.toggle("is-active", expanded);
-  cluster.classList.toggle("is-edit-open", expanded);
-  if (!expanded) historyController?.close();
-}
-
-function syncPdfExport(enabled = !document.body.classList.contains("has-layout-diagnostics")) {
-  const button = $("#export-pdf");
-  button.disabled = !enabled;
-  button.title = enabled ? "Export PDF" : "Turn off layout diagnostics before exporting PDF";
-}
+function setEditControlsOpen(open) { setDeckEditControlsOpen(open, () => historyController?.close()); }
 
 function showError(error) {
   $("#error-message").textContent = error?.message || String(error);
@@ -383,19 +355,6 @@ function navigateHomeFromPresentation() {
   }
 }
 
-async function copyText(text) {
-  if (!text) throw new Error("This source cannot be linked until it is available at a stable URL.");
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.append(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  textarea.remove();
-}
-
 function offerResume(index) {
   if (index <= 0) return;
   $("#resume-message").textContent = `Continue from slide ${index + 1}?`;
@@ -406,7 +365,6 @@ function offerResume(index) {
 function deckState(state, session, manager) {
   return {
     onSourceMarkdownChange: state.onSourceMarkdownChange,
-    onAssetsChange: state.onAssetsChange,
     session,
     index: presentation.index,
     keepDeckVisible: true,
@@ -421,6 +379,7 @@ function imageReferences(documentModel) {
 }
 
 async function checkReferences(markdown, repository, source, manager) {
+  const { extractUnsupportedMediaReferences, processMarkdown } = await markdownTools();
   const documentModel = processMarkdown(markdown, source);
   const displayableReferences = imageReferences(documentModel);
   const unsupportedReferences = extractUnsupportedMediaReferences(markdown);
@@ -451,9 +410,8 @@ async function loadDeck(repository, source, label, state = {}) {
     setScreen("loading");
   }
   try {
-    const deckRepository = repository instanceof WorkingRepository
-      ? repository
-      : new WorkingRepository(repository, source, state.assets);
+    const { processMarkdown } = await markdownTools();
+    const deckRepository = repository;
     const initialMarkdown = state.markdown ?? await deckRepository.readText();
     const session = state.session || new DocumentSession({
       markdown: initialMarkdown,
@@ -553,22 +511,35 @@ async function loadDeck(repository, source, label, state = {}) {
     $("#deck-name").textContent = label || "Presentation";
     activePositionKey = state.positionKey || null;
     activeCopySlideLink = state.copySlideLink || null;
-    activeAssetHandler = async (file) => {
+    activeImageUrlHandler = async (url) => {
       const slideIndex = presentation.index;
       const sourceStart = presentation.slides[slideIndex]?.model.sourceEnd;
-      const asset = await deckRepository.addFile(file);
-      const result = insertImageIntoSlide(
+      const result = insertImageUrlIntoSlide(
         session.markdown,
         presentation.slides[presentation.index]?.model,
-        asset,
+        url,
         session.annotationState,
       );
       session.applyMarkdown(result.markdown, result.annotationState, "Add image", { slideIndex, sourceStart });
-      state.onAssetsChange?.(await deckRepository.serializedAssets());
       state.onSourceMarkdownChange?.(session.markdown);
       await loadDeck(deckRepository, source, label, deckState(state, session, manager));
     };
-    $("#add-image").hidden = false;
+    activeDeckEditorHandler = async () => {
+      const slideIndex = Math.min(presentation.index, presentation.slides.length - 1);
+      const { openDeckEditor } = await import("./deck-editor.js");
+      await openDeckEditor({
+        session,
+        slideModel: presentation.slides[slideIndex]?.model,
+        slideIndex,
+        assetManager: manager,
+        onSave: async (nextMarkdown, annotationState, details) => {
+          session.applyMarkdown(nextMarkdown, annotationState, details.historyLabel, details);
+          state.onSourceMarkdownChange?.(nextMarkdown);
+          await loadDeck(deckRepository, source, label, deckState(state, session, manager));
+        },
+      });
+    };
+    $("#add-image").hidden = !activeImageUrlHandler;
     setScreen("deck");
     $("#stage").focus({ preventScroll: true });
     suppressPositionPersistence = Boolean(savedPosition);
@@ -739,6 +710,7 @@ document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click",
   document.querySelectorAll(".tab").forEach((item) => item.classList.toggle("is-active", item === tab));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("is-active", panel.dataset.panel === tab.dataset.tab));
   document.querySelectorAll(".tab").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
+  if (tab.dataset.tab === "paste") schedulePasteCheck();
 }));
 
 let pasteCheckTimer;
@@ -761,7 +733,6 @@ async function checkPastedMarkdown({ present = false, fromLink = false } = {}) {
         markdown,
         assetManager: validation.manager,
         onSourceMarkdownChange: savePastedMarkdown,
-        onAssetsChange: savePastedAssets,
         positionKey: positionStorageKey("paste"),
         copySlideLink: (index) => pastedSlideUrl(location.href, index),
         fromLink,
@@ -771,7 +742,7 @@ async function checkPastedMarkdown({ present = false, fromLink = false } = {}) {
   }
   clearPasteValidation();
   const source = { path: "slides.md" };
-  const repository = new WorkingRepository(new InlineRepository(markdown), source, pastedAssets);
+  const repository = new InlineRepository(markdown);
   const manager = new AssetManager(repository, source, CONFIG.presentation.assetConcurrency);
   setAssetStatus($("#paste-status"), "Checking referenced items…", "checking");
   try {
@@ -794,7 +765,6 @@ async function checkPastedMarkdown({ present = false, fromLink = false } = {}) {
       markdown,
       assetManager: manager,
       onSourceMarkdownChange: savePastedMarkdown,
-      onAssetsChange: savePastedAssets,
       positionKey: positionStorageKey("paste"),
       copySlideLink: (index) => pastedSlideUrl(location.href, index),
       fromLink,
@@ -825,7 +795,6 @@ $("#markdown-input").addEventListener("input", () => {
 $("#reset-example").addEventListener("click", () => {
   if (!window.confirm("Discard edits?")) return;
   resetExampleMarkdown();
-  pastedAssets = [];
   $("#markdown-input").value = SAMPLE;
   syncExampleResetButton();
   clearPasteValidation();
@@ -893,20 +862,13 @@ $("#fullscreen").addEventListener("click", toggleFullscreen);
 $("#edit-toggle").addEventListener("click", () => {
   setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
 });
+$("#edit-slide").addEventListener("click", () => { if (activeDeckEditorHandler) void activeDeckEditorHandler().catch(showError); });
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
 const addImageButton = $("#add-image");
 addImageButton.addEventListener("pointerleave", () => addImageButton.classList.remove("is-hover-suppressed"));
 addImageButton.addEventListener("click", (event) => {
   if (event.detail > 0) addImageButton.classList.add("is-hover-suppressed");
-  $("#image-input").click();
-});
-$("#image-input").addEventListener("change", async (event) => {
-  const [file] = event.target.files;
-  event.target.value = "";
-  if (!file || !activeAssetHandler) return;
-  try { await activeAssetHandler(file); }
-  catch (error) { showError(error); }
-  finally { if (addImageButton.classList.contains("is-hover-suppressed")) addImageButton.blur(); }
+  if (activeImageUrlHandler) promptForImageUrl($(".deck-screen"), activeImageUrlHandler);
 });
 document.addEventListener("mdpresent:diagnosticschange", (event) => {
   syncPdfExport(!event.detail?.enabled);
@@ -923,22 +885,7 @@ $("#resume-start").addEventListener("click", () => {
   if (activePositionKey) writeLocalPosition(activePositionKey, presentationPosition(presentation, 0));
 });
 
-async function toggleFullscreen() {
-  if (document.fullscreenElement) await document.exitFullscreen();
-  else await $(".deck-screen").requestFullscreen();
-}
-
-document.addEventListener("keydown", (event) => {
-  if ($(".deck-screen").hidden || event.target.matches("input, textarea, [contenteditable='true']")) return;
-  if (event.target.matches("button") && ["Enter", " "].includes(event.key)) return;
-  const actions = {
-    ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),
-    ArrowLeft: () => presentation?.previous(), ArrowUp: () => presentation?.previous(), PageUp: () => presentation?.previous(),
-    Home: () => presentation?.first(), End: () => presentation?.last(), f: toggleFullscreen, F: toggleFullscreen,
-  };
-  if (actions[event.key]) { event.preventDefault(); actions[event.key](); }
-});
+document.addEventListener("keydown", (event) => handleDeckNavigationKeydown(event, presentation));
 
 setScreen("home");
-schedulePasteCheck();
 if (readHash().get("deck") === "paste") void checkPastedMarkdown({ present: true, fromLink: true });

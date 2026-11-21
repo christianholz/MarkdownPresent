@@ -1,4 +1,4 @@
-import { resolveRepoPath, sameRepoGithubPath } from "./paths.js";
+import { repoDirectory, resolveRepoPath, sameRepoGithubPath } from "./paths.js";
 import { remapCommentOffsets, replaceMarkdownRange } from "./annotations.js";
 
 function normalizePath(path) {
@@ -11,12 +11,7 @@ function normalizePath(path) {
 }
 
 function cleanFilename(name) {
-  const normalized = String(name || "image").normalize("NFKD").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "");
-  return normalized || "image";
-}
-
-function titleFromFilename(name) {
-  return cleanFilename(name).replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
+  return String(name || "image").normalize("NFKD").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "image";
 }
 
 function bytesToBase64(bytes) {
@@ -27,54 +22,80 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
-function base64ToBytes(value) {
-  const binary = atob(value);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+export function preferredImageFolder(source, references = []) {
+  const documentPath = source?.path || "slides.md";
+  const documentDirectory = repoDirectory(documentPath);
+  const counts = new Map();
+  for (const reference of new Set(references)) {
+    if (typeof reference !== "string" || !reference) continue;
+    try {
+      const githubPath = source?.owner ? sameRepoGithubPath(reference, source) : null;
+      if (!githubPath && /^(?:[a-z][\w+.-]*:|\/\/)/i.test(reference)) continue;
+      const path = githubPath || resolveRepoPath(documentPath, reference);
+      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+      counts.set(folder, (counts.get(folder) || 0) + 1);
+    } catch { /* Malformed image references cannot select an upload folder. */ }
+  }
+  if (!counts.size) return "assets";
+  let preferred = "";
+  let highestCount = 0;
+  let highestRank = -1;
+  const markdownDirectory = documentDirectory.replace(/\/$/, "");
+  for (const [folder, count] of counts) {
+    const isSubfolder = folder !== markdownDirectory && folder.startsWith(documentDirectory);
+    const rank = isSubfolder ? 2 : folder === markdownDirectory ? 1 : 0;
+    if (count > highestCount || count === highestCount && rank > highestRank) {
+      preferred = folder;
+      highestCount = count;
+      highestRank = rank;
+    }
+  }
+  const from = markdownDirectory.split("/").filter(Boolean);
+  const to = preferred.split("/").filter(Boolean);
+  let shared = 0;
+  while (shared < from.length && shared < to.length && from[shared] === to[shared]) shared += 1;
+  return [...Array(from.length - shared).fill(".."), ...to.slice(shared)].join("/") || ".";
 }
 
 export class WorkingRepository {
-  constructor(base, source, serializedAssets = []) {
+  constructor(base, source) {
     this.base = base;
     this.source = source;
     this.documentFile = base.documentFile;
     this.assets = new Map();
-    for (const asset of serializedAssets || []) {
-      if (!asset?.path || !asset?.data) continue;
-      this.assets.set(normalizePath(asset.path), new Blob([base64ToBytes(asset.data)], { type: asset.type || "application/octet-stream" }));
-    }
   }
 
   async readText() { return this.base.readText(); }
 
-  async readBlob(path) {
-    const normalized = normalizePath(path);
-    return this.assets.get(normalized) || this.base.readBlob(path);
-  }
+  async readBlob(path) { return this.assets.get(normalizePath(path)) || this.base.readBlob(path); }
 
-  async addFile(file) {
+  async addFile(file, references = []) {
+    if (!(file instanceof Blob) || !String(file.type).startsWith("image/")) {
+      throw new Error("Choose an image file to add to this deck.");
+    }
     const documentPath = this.source?.path || this.documentFile?.webkitRelativePath || this.documentFile?.name || "slides.md";
-    const directory = documentPath.includes("/") ? documentPath.slice(0, documentPath.lastIndexOf("/") + 1) : "";
+    const folder = preferredImageFolder({ ...this.source, path: documentPath }, references);
     const original = cleanFilename(file.name || `image.${String(file.type || "image/png").split("/")[1] || "png"}`);
     const dot = original.lastIndexOf(".");
     const stem = dot > 0 ? original.slice(0, dot) : original;
     const extension = dot > 0 ? original.slice(dot) : "";
     let filename = original;
     let counter = 2;
-    const exists = async (path) => {
-      if (this.assets.has(path)) return true;
-      return typeof this.base.hasBlob === "function" ? this.base.hasBlob(path) : false;
-    };
-    while (await exists(normalizePath(`${directory}assets/${filename}`))) {
+    const exists = async (path) => this.assets.has(path) || (typeof this.base.hasBlob === "function" && await this.base.hasBlob(path));
+    const referenceFor = (name) => `${folder.startsWith(".") ? folder : `./${folder}`}/${name}`;
+    while (await exists(resolveRepoPath(documentPath, referenceFor(filename)))) {
       filename = `${stem}-${counter}${extension}`;
       counter += 1;
     }
-    const path = normalizePath(`${directory}assets/${filename}`);
+    const path = resolveRepoPath(documentPath, referenceFor(filename));
     this.assets.set(path, file);
-    return { reference: `./assets/${filename}`, path, alt: titleFromFilename(filename) };
+    const alt = filename.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
+    return { reference: referenceFor(filename), path, alt };
   }
 
-  async serializedAssets() {
-    return Promise.all([...this.assets].map(async ([path, blob]) => ({
+  async serializedAssets(paths = null) {
+    const entries = paths ? [...this.assets].filter(([path]) => paths.has(path)) : [...this.assets];
+    return Promise.all(entries.map(async ([path, blob]) => ({
       path,
       type: blob.type || "application/octet-stream",
       data: bytesToBase64(new Uint8Array(await blob.arrayBuffer())),
@@ -82,12 +103,29 @@ export class WorkingRepository {
   }
 }
 
-export function insertImageIntoSlide(markdown, slideModel, asset, annotationState = {}) {
+export function normalizeImageUrl(input) {
+  let url;
+  try { url = new URL(String(input || "").trim()); }
+  catch { throw new Error("Paste a complete HTTPS image URL."); }
+  if (url.protocol !== "https:" || !url.hostname || url.username || url.password) {
+    throw new Error("Paste a complete HTTPS image URL.");
+  }
+  return url.href;
+}
+
+function imageAltText(url) {
+  let filename;
+  try { filename = decodeURIComponent(new URL(url).pathname.split("/").pop() || ""); }
+  catch { filename = ""; }
+  return filename.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/[\[\]\r\n]/g, "").trim() || "Image";
+}
+
+function insertImageReferenceIntoSlide(markdown, slideModel, reference, alt, annotationState = {}) {
   const start = Number(slideModel?.sourceEnd);
   if (!Number.isInteger(start) || start < 0 || start > markdown.length) {
     throw new Error("The active slide could not be located in the Markdown source.");
   }
-  const insertion = `\n\n![${asset.alt}](${asset.reference})`;
+  const insertion = `\n\n![${alt}](${reference})`;
   return {
     markdown: replaceMarkdownRange(markdown, start, start, insertion),
     annotationState: {
@@ -96,6 +134,15 @@ export function insertImageIntoSlide(markdown, slideModel, asset, annotationStat
       editCount: (annotationState.editCount || 0) + 1,
     },
   };
+}
+
+export function insertImageUrlIntoSlide(markdown, slideModel, input, annotationState = {}) {
+  const url = normalizeImageUrl(input);
+  return insertImageReferenceIntoSlide(markdown, slideModel, `<${url}>`, imageAltText(url), annotationState);
+}
+
+export function insertImageIntoSlide(markdown, slideModel, asset, annotationState = {}) {
+  return insertImageReferenceIntoSlide(markdown, slideModel, asset.reference, asset.alt, annotationState);
 }
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, value) => {
@@ -169,7 +216,7 @@ function triggerDownload(filename, blob) {
 }
 
 export async function downloadDeckWorkspace({ repository, source, markdown, references }) {
-  const documentPath = normalizePath(source?.path || repository.documentFile?.name || "presentation.md");
+  const documentPath = resolveRepoPath("", source?.path || repository.documentFile?.name || "presentation.md");
   const files = [{ path: documentPath, data: new TextEncoder().encode(markdown) }];
   const included = new Set([documentPath]);
   for (const reference of references || []) {

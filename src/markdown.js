@@ -17,6 +17,9 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import "katex/dist/katex.min.css";
+import { normalizeMarkdownSource } from "./markdown-source.js";
+
+export { normalizeMarkdownSource } from "./markdown-source.js";
 
 for (const [name, language] of Object.entries({
   bash, cpp, css, java, javascript, json, markdown: markdownLanguage,
@@ -31,10 +34,6 @@ const CODE_LANGUAGE_ALIASES = Object.freeze({
 });
 
 let activeTocEntries = [];
-
-export function normalizeMarkdownSource(markdown) {
-  return String(markdown || "").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
-}
 
 function mathExtension() {
   return [
@@ -312,16 +311,18 @@ function splitAtSlideBoundaries(markdown, sourceOffset = 0) {
     const line = rawLine.endsWith("\n") ? rawLine.slice(0, -1) : rawLine;
     const lineOffset = offset;
     offset += rawLine.length;
-    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
     if (fenceMatch) {
-      const marker = fenceMatch[1][0];
-      fence = fence === marker ? null : (fence || marker);
+      if (!fence) fence = { marker: fenceMatch[1][0], length: fenceMatch[1].length };
+      else if (fence.marker === fenceMatch[1][0]
+        && fenceMatch[1].length >= fence.length
+        && !fenceMatch[2].trim()) fence = null;
       current.push({ line: rawLine, offset: lineOffset });
       continue;
     }
 
-    const explicitBreak = !fence && /^\s*(?:<!--\s*slide\s*-->|---)\s*$/i.test(line);
-    const headingStart = !fence && /^(?:#|##)\s+/.test(line);
+    const explicitBreak = !fence && /^ {0,3}(?:<!--\s*slide\s*-->|---)\s*$/i.test(line);
+    const headingStart = !fence && /^ {0,3}(?:#|##)\s+/.test(line);
     if ((explicitBreak || headingStart) && current.some((item) => item.line.trim())) commit();
     if (explicitBreak) continue;
     current.push({ line: rawLine, offset: lineOffset });

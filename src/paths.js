@@ -7,15 +7,25 @@ export function repoDirectory(path) {
   return slash < 0 ? "" : path.slice(0, slash + 1);
 }
 
+function normalizedRepoPath(path, directory = "", decode = true) {
+  const parts = directory.split("/").filter(Boolean);
+  for (const part of (decode ? decodeURIComponent(path) : path).split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!parts.length) throw new Error("Asset path escapes the repository root.");
+      parts.pop();
+    } else {
+      if (part.includes("\\") || part.includes("\0")) throw new Error("Invalid repository asset path.");
+      parts.push(part);
+    }
+  }
+  return parts.join("/");
+}
+
 export function resolveRepoPath(documentPath, assetPath) {
   const clean = assetPath.split("#")[0].split("?")[0];
   const base = clean.startsWith("/") ? "" : repoDirectory(documentPath);
-  const resolved = new URL(clean.replace(/^\/+/, ""), `https://repo.invalid/${base}`);
-  const normalized = decodeURIComponent(resolved.pathname.replace(/^\/+/, ""));
-  if (normalized.startsWith("../") || normalized === "..") {
-    throw new Error("Asset path escapes the repository root.");
-  }
-  return normalized;
+  return normalizedRepoPath(clean.replace(/^\/+/, ""), base);
 }
 
 export function sameRepoGithubPath(input, source) {
@@ -25,14 +35,14 @@ export function sameRepoGithubPath(input, source) {
     if (url.hostname === "github.com") {
       for (const marker of ["blob", "raw"]) {
         const simplePrefix = `/${source.owner}/${source.repo}/${marker}/${source.ref}/`;
-        const refsPrefix = `/${source.owner}/${source.repo}/${marker}/refs/heads/${source.ref}/`;
-        if (decodedPath.startsWith(refsPrefix)) return decodedPath.slice(refsPrefix.length);
-        if (decodedPath.startsWith(simplePrefix)) return decodedPath.slice(simplePrefix.length);
+        const refsPrefix = `/${source.owner}/${source.repo}/${marker}/refs/${source.refType === "tags" ? "tags" : "heads"}/${source.ref}/`;
+        if (decodedPath.startsWith(refsPrefix)) return normalizedRepoPath(decodedPath.slice(refsPrefix.length), "", false);
+        if (decodedPath.startsWith(simplePrefix)) return normalizedRepoPath(decodedPath.slice(simplePrefix.length), "", false);
       }
     }
     if (url.hostname === "raw.githubusercontent.com") {
       const prefix = `/${source.owner}/${source.repo}/${source.ref}/`;
-      if (decodedPath.startsWith(prefix)) return decodedPath.slice(prefix.length);
+      if (decodedPath.startsWith(prefix)) return normalizedRepoPath(decodedPath.slice(prefix.length), "", false);
     }
   } catch {
     return null;

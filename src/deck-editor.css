@@ -1,0 +1,46 @@
+.deck-editor-dialog {
+  width: min(1100px, calc(100vw - 20px));
+  height: min(840px, calc(100dvh - 20px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid #d8d4cb;
+  border-radius: 14px;
+  background: #fff;
+  color: #24211c;
+  box-shadow: 0 24px 80px #0005;
+}
+
+.deck-editor-dialog::backdrop { background: #101318b8; }
+.deck-editor-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.deck-editor-header,
+.deck-editor-footer { display: flex; align-items: center; gap: 12px; padding: 12px 18px; }
+.deck-editor-header { border-bottom: 1px solid #e5e1d9; justify-content: space-between; }
+.deck-editor-header strong { font-size: 18px; }
+.deck-editor-header p { margin: 3px 0 0; color: #625d54; font-size: 12px; }
+.deck-editor-close { font-size: 25px; line-height: 1; min-width: 36px; }
+.deck-editor-tabs { display: flex; gap: 5px; padding: 8px 18px 0; border-bottom: 1px solid #e5e1d9; }
+.deck-editor-dialog button { cursor: pointer; }
+.deck-editor-tabs button { padding: 8px 13px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #625d54; }
+.deck-editor-tabs button[aria-selected="true"] { border-color: #344e8c; color: #243c70; font-weight: 700; }
+.deck-editor-note { margin: 12px 18px 0; padding: 9px 12px; background: #f5f1e6; border-radius: 6px; font-size: 13px; }
+.deck-editor-source-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 18px 0; }
+.deck-editor-source-tools button { border: 1px solid #cbc6bd; border-radius: 6px; background: #f8f7f4; padding: 6px 9px; color: #312d28; font-size: 12px; }
+.deck-editor-visual { flex: 1; min-height: 0; overflow: auto; }
+.deck-editor-visual .milkdown { min-height: 100%; }
+.deck-editor-visual .milkdown .editor { min-height: 400px; padding: 20px 30px 80px; }
+.deck-editor-source { flex: 1; min-height: 0; resize: none; margin: 14px 18px; padding: 16px; border: 1px solid #cbc6bd; border-radius: 7px; font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #24211c; background: #fff; }
+.deck-editor-footer { border-top: 1px solid #e5e1d9; justify-content: flex-end; }
+.deck-editor-footer button { border: 1px solid #bbb5ab; border-radius: 6px; background: #fff; padding: 8px 14px; color: #24211c; }
+.deck-editor-footer .deck-editor-save { background: #243c70; color: #fff; border-color: #243c70; }
+.deck-editor-error { flex: 1; color: #a52121; font-size: 13px; }
+.deck-editor-dialog [hidden] { display: none !important; }
+.deck-editor-dialog.is-url-only .uploader { display: none !important; }
+
+@media (max-width: 600px) {
+  .deck-editor-dialog { border-radius: 8px; }
+  .deck-editor-header,
+  .deck-editor-footer { padding: 10px; }
+  .deck-editor-visual .milkdown .editor { padding: 16px 12px 60px; }
+  .deck-editor-source { margin: 10px; padding: 10px; }
+}

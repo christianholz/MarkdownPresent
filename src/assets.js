@@ -27,6 +27,7 @@ export class AssetManager {
     this.cache = new Map();
     this.urls = new Set();
     this.queue = new RequestQueue(concurrency);
+    this.disposed = false;
   }
 
   resolve(input) {
@@ -46,15 +47,20 @@ export class AssetManager {
     if (this.cache.has(resolved.path)) return this.cache.get(resolved.path);
     const promise = this.queue.run(async () => {
       const blob = await this.repository.readBlob(resolved.path);
+      if (this.disposed) throw new Error("The asset manager has been disposed.");
       const url = URL.createObjectURL(blob);
       this.urls.add(url);
       return url;
+    }).catch((error) => {
+      if (this.cache.get(resolved.path) === promise) this.cache.delete(resolved.path);
+      throw error;
     });
     this.cache.set(resolved.path, promise);
     return promise;
   }
 
   dispose() {
+    this.disposed = true;
     for (const url of this.urls) URL.revokeObjectURL(url);
     this.urls.clear();
     this.cache.clear();

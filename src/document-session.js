@@ -1,4 +1,4 @@
-import { normalizeMarkdownSource } from "./markdown.js";
+import { normalizeMarkdownSource } from "./markdown-source.js";
 
 function copyComments(comments = []) {
   return comments.map((comment) => ({ ...comment }));

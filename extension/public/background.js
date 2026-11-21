@@ -86,16 +86,21 @@ function matchingRef(remainder, refs) {
     .sort((left, right) => right.name.length - left.name.length)[0] || null;
 }
 
-async function resolveFolder(url, token = "") {
+async function resolveLocation(url, token = "", { file = false, requireRef = false } = {}) {
   const location = githubLocation(url);
   if (!location) throw new Error("Open a GitHub repository or folder first.");
+  if (file && location.kind !== "blob") throw new Error("Open a GitHub Markdown file first.");
   const repoInfo = await api(`/repos/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}`, token);
   let ref = repoInfo.default_branch;
   let refType = "heads";
   let pathParts = [];
 
   if (location.kind !== "repo" && location.remainder.length) {
-    const first = location.remainder[0];
+    const explicitType = location.remainder[0] === "refs" && ["heads", "tags"].includes(location.remainder[1])
+      ? location.remainder[1] : null;
+    const remainder = explicitType ? location.remainder.slice(2) : location.remainder;
+    const first = remainder[0];
+    if (!first) throw new Error("The GitHub URL does not name a ref.");
     const refs = [{ name: repoInfo.default_branch, type: "heads" }];
     const prefix = encodePath(first);
     const requests = [
@@ -111,14 +116,19 @@ async function resolveFolder(url, token = "") {
         type,
       })));
     }
-    const match = matchingRef(location.remainder, refs);
+    const match = matchingRef(remainder, explicitType ? refs.filter((candidate) => candidate.type === explicitType) : refs);
+    if (!match && requireRef) throw new Error("The GitHub branch or tag could not be resolved.");
     ref = match?.name || first;
-    refType = match?.type || "heads";
-    pathParts = location.remainder.slice(ref.split("/").length);
-    if (location.kind === "blob") pathParts.pop();
+    refType = match?.type || explicitType || "heads";
+    pathParts = remainder.slice(ref.split("/").length);
+    if (location.kind === "blob" && !file) pathParts.pop();
   }
 
   const path = pathParts.join("/");
+  if (file) {
+    if (!MARKDOWN_PATTERN.test(path)) throw new Error("This GitHub page is not a Markdown file.");
+    return { owner: location.owner, repo: location.repo, ref, refType, path };
+  }
   const id = `${location.owner}/${location.repo}@${ref}:${path}`;
   return {
     id,
@@ -131,6 +141,12 @@ async function resolveFolder(url, token = "") {
     url: `https://github.com/${encodeURIComponent(location.owner)}/${encodeURIComponent(location.repo)}/tree/${encodePath(ref)}${path ? `/${encodePath(path)}` : ""}`,
   };
 }
+
+async function resolveFolder(url, token = "") {
+  return resolveLocation(url, token);
+}
+
+export { resolveLocation };
 
 async function addBookmark(url, label = "") {
   const state = await storedState();
@@ -221,7 +237,9 @@ async function scanRecent() {
   });
   return {
     days,
-    entries: [...newestByFile.values()].sort((left, right) => right.changedAt.localeCompare(left.changedAt)),
+    entries: [...newestByFile.values()]
+      .filter((entry) => entry.status !== "removed")
+      .sort((left, right) => right.changedAt.localeCompare(left.changedAt)),
     errors,
     cappedFolders,
   };
@@ -293,6 +311,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.local.set({ [storageKey]: payload });
         await chrome.tabs.create({ url: chrome.runtime.getURL(`present.html#source=${sourceId}`) });
         return { ok: true };
+      }
+      case "source:resolve": {
+        const senderUrl = sender.tab?.url || "";
+        if (!senderUrl.startsWith("https://github.com/")) throw new Error("Unexpected source page.");
+        const { settings } = await storedState();
+        return { source: await resolveLocation(senderUrl, settings.token, { file: true, requireRef: true }) };
       }
       case "state:get":
         return storedState();
