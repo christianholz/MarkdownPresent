@@ -609,8 +609,7 @@ export class AnnotationManager {
         void this.removePendingImage();
       }]);
     }
-    if (this.onMarkdownChange && slideStart >= 0 && slideMarkdown && this.pendingAnchor.textInsertion
-      && this.deck.querySelector(".deck-control-cluster.is-edit-open")) {
+    if (this.onMarkdownChange && slideStart >= 0 && slideMarkdown && this.pendingAnchor.textInsertion) {
       actions.push(["Add text", (event) => {
         event.stopPropagation();
         menu.remove();

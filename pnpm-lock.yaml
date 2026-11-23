@@ -14,6 +14,9 @@ importers:
       '@milkdown/crepe':
         specifier: 7.23.0
         version: 7.23.0(prosemirror-model@1.25.13)(prosemirror-state@1.4.4)(prosemirror-view@1.43.0)
+      '@svgedit/svgcanvas':
+        specifier: 7.4.2
+        version: 7.4.2
       dompurify:
         specifier: ^3.2.6
         version: 3.4.13
@@ -591,6 +594,9 @@ packages:
     resolution: {integrity: sha512-zD6NdeWEByGE9QF9vCrlJ5YQB4oq9q91kPZS37Jwj5hOkvR1lTBSpsKhKDw4IJtbQ35LsTS1HD9DZYGKIshU1Q==}
     cpu: [x64]
     os: [win32]
+
+  '@svgedit/svgcanvas@7.4.2':
+    resolution: {integrity: sha512-18PixrbaGstEsZfijYeF+y69LDOfP/c68aVKR+Hh8S/YckbhxT4VpKJFf5Ang/Zd/Vvy63jPuf9O4pEDc4Gv+A==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -2072,6 +2078,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.62.4':
     optional: true
+
+  '@svgedit/svgcanvas@7.4.2': {}
 
   '@types/chai@5.2.3':
     dependencies:

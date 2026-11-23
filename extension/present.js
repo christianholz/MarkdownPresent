@@ -10,11 +10,11 @@ import { draftWithoutAssetData, extensionDraftKey, extensionDraftRecord, restora
 import { DocumentSession } from "../src/document-session.js";
 import { HistoryController, resolveHistorySlide } from "../src/history.js";
 import { githubSlideUrl, positionStorageKey, presentationPosition, resolvePresentationPosition } from "../src/positions.js";
-import { downloadDeckWorkspace, insertImageIntoSlide, WorkingRepository } from "../src/asset-workspace.js";
+import { downloadDeckWorkspace, WorkingRepository } from "../src/asset-workspace.js";
 import { exportPresentationPdf } from "../src/pdf-export.js";
 import { requestGitHubToken, writeDeckToGitHub } from "../src/github-writeback.js";
 import { LayoutDiagnostics } from "../src/diagnostics.js";
-import { copyText, handleDeckNavigationKeydown, setDeckEditControlsOpen, syncPdfExport, toggleFullscreen } from "../src/deck-controls.js";
+import { copyText, handleDeckNavigationKeydown, syncPdfExport, toggleFullscreen } from "../src/deck-controls.js";
 import { resolveRepoPath } from "../src/paths.js";
 
 document.querySelector("#app").innerHTML = `
@@ -35,26 +35,21 @@ document.querySelector("#app").innerHTML = `
         <button id="outline-toggle" aria-label="Show content overview" aria-controls="slide-outline" aria-expanded="false" title="Content overview">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
         </button>
-        <button id="edit-toggle" aria-label="Show editing tools" aria-controls="edit-controls" aria-expanded="false" title="Edit">
+        <button id="edit-toggle" aria-label="Edit slide" aria-expanded="false" title="Edit">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.6-10.6a2.2 2.2 0 0 0-3.1-3.1L5.1 15.9 4 20Z"/><path d="m14.5 6.5 3 3"/></svg>
         </button>
-        <button id="next" aria-label="Next slide">→</button>
-      </nav>
-      <nav class="edit-controls" id="edit-controls" aria-label="Editing tools" hidden>
-        <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
-        <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
-        <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false" title="Edit history">
-          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6M12 8v4l2.8 1.7"/></svg>
-        </button>
-        <button id="edit-slide" aria-label="Edit this slide" title="Edit slide">✎</button>
-        <button id="add-image" aria-label="Add an image file to this slide" title="Add image file"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
-        <input id="image-input" type="file" accept="image/*" hidden />
         <button id="download-comments" aria-label="Download changes" title="Download changes" hidden>⤓</button>
         <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7Z"/><path d="M14 3v5h4M12 11v6m-3-3 3 3 3-3"/></svg>
         </button>
+        <button id="next" aria-label="Next slide">→</button>
       </nav>
     </div>
+    <nav class="deck-editor-history" id="editor-history" aria-label="Revision controls" hidden>
+      <button id="undo" aria-label="Undo saved edit" title="Undo saved edit" disabled>↶</button>
+      <button id="redo" aria-label="Redo saved edit" title="Redo saved edit" disabled>↷</button>
+      <button id="history-toggle" aria-controls="history-panel" aria-expanded="false">Past revisions</button>
+    </nav>
     <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <p id="draft-asset-warning" class="draft-asset-warning" role="alert" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
@@ -69,7 +64,7 @@ document.querySelector("#app").innerHTML = `
     </section>
     <p class="pdf-preparing-status" id="pdf-status" role="status" hidden>Preparing every slide for PDF…</p>
     <aside class="history-panel" id="history-panel" aria-label="Edit history" hidden>
-      <header class="slide-outline-header"><strong>Edit history</strong><button id="history-close" aria-label="Close edit history">×</button></header>
+      <header class="slide-outline-header"><strong>Past revisions</strong><button id="history-close" aria-label="Close edit history">×</button></header>
       <div class="history-list" id="history-list"></div>
     </aside>
     <div class="progress-track"><div id="progress"></div></div>
@@ -86,16 +81,13 @@ let annotations;
 let historyController;
 let positionKey;
 let suppressPositionPersistence = false;
-let activeAssetHandler = null;
 let activeDeckEditorHandler = null;
 let diagnostics;
 
 function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
-  if (name !== "deck") setEditControlsOpen(false);
+  if (name !== "deck") historyController?.close();
 }
-
-function setEditControlsOpen(open) { setDeckEditControlsOpen(open, () => historyController?.close()); }
 
 function showError(error) {
   $("#error-message").textContent = error?.message || String(error);
@@ -305,6 +297,7 @@ async function boot() {
         close: $("#history-close"),
         undo: $("#undo"),
         redo: $("#redo"),
+        onError: showError,
         currentSlide: () => presentation?.atEnd ? null : presentation?.index,
         resolveSlide: (location) => resolveHistorySlide(presentation, location),
         showSlide: (index) => presentation?.show(index),
@@ -313,22 +306,7 @@ async function boot() {
         await persistDraft(restoredSession.snapshot());
         return renderDeck(presentation.index, true);
       });
-      activeAssetHandler = originalMarkdown ? async (file) => {
-        const slideIndex = presentation.index;
-        const sourceStart = presentation.slides[slideIndex]?.model.sourceEnd;
-        const references = documentModel.slides.flatMap((slide) => slide.images.map((image) => image.src));
-        const asset = await repository.addFile(file, references);
-        const result = insertImageIntoSlide(
-          session.markdown,
-          presentation.slides[presentation.index]?.model,
-          asset,
-          session.annotationState,
-        );
-        session.applyMarkdown(result.markdown, result.annotationState, "Add image", { slideIndex, sourceStart });
-        await persistDraft(session.snapshot());
-        await renderDeck(presentation.index, true);
-      } : null;
-      activeDeckEditorHandler = originalMarkdown ? async () => {
+      activeDeckEditorHandler = originalMarkdown ? async (initialView) => {
         const slideIndex = Math.min(presentation.index, presentation.slides.length - 1);
         const { openDeckEditor } = await import("../src/deck-editor.js");
         await openDeckEditor({
@@ -337,12 +315,14 @@ async function boot() {
           slideIndex,
           presentation,
           assetManager: manager,
+          historyController,
+          initialView,
+          reopen: (view) => activeDeckEditorHandler?.(view),
           onUploadImage: async (file, editedSection) => {
             const references = [session.markdown, editedSection]
               .flatMap((markdown) => processMarkdown(markdown, payload.source).slides
                 .flatMap((slide) => slide.images.map((image) => image.src)));
-            const asset = await repository.addFile(file, references);
-            return asset.reference;
+            return repository.addFile(file, references);
           },
           onSave: async (nextMarkdown, annotationState, details) => {
             session.applyMarkdown(nextMarkdown, annotationState, details.historyLabel, details);
@@ -351,8 +331,7 @@ async function boot() {
           },
         });
       } : null;
-      $("#edit-slide").hidden = !activeDeckEditorHandler;
-      $("#add-image").hidden = !activeAssetHandler;
+      $("#edit-toggle").hidden = !activeDeckEditorHandler;
       $("#deck-name").textContent = payload.source.path.split("/").pop() || "Presentation";
       setScreen("deck");
       await presentation.show(requestedIndex);
@@ -391,24 +370,9 @@ $("#close").addEventListener("click", (event) => {
 $("#close-error").addEventListener("click", () => window.close());
 $("#fullscreen").addEventListener("click", toggleFullscreen);
 $("#edit-toggle").addEventListener("click", () => {
-  setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
+  if (activeDeckEditorHandler) void activeDeckEditorHandler().catch(showError);
 });
-$("#edit-slide").addEventListener("click", () => { if (activeDeckEditorHandler) void activeDeckEditorHandler().catch(showError); });
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
-const addImageButton = $("#add-image");
-addImageButton.addEventListener("pointerleave", () => addImageButton.classList.remove("is-hover-suppressed"));
-addImageButton.addEventListener("click", (event) => {
-  if (event.detail > 0) addImageButton.classList.add("is-hover-suppressed");
-  $("#image-input").click();
-});
-$("#image-input").addEventListener("change", async (event) => {
-  const [file] = event.target.files;
-  event.target.value = "";
-  if (!file || !activeAssetHandler) return;
-  try { await activeAssetHandler(file); }
-  catch (error) { showError(error); }
-  finally { if (addImageButton.classList.contains("is-hover-suppressed")) addImageButton.blur(); }
-});
 document.addEventListener("mdpresent:diagnosticschange", (event) => {
   syncPdfExport(!event.detail?.enabled);
 });

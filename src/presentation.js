@@ -761,6 +761,7 @@ export class Presentation {
   }
 
   prepareAllSlides() {
+    if (this.stage.closest(".deck-screen.is-live-editing")) return Promise.resolve();
     if (this.printPreparationPromise) return this.printPreparationPromise;
     const preparation = this.buildPrintStage();
     const tracked = preparation.finally(() => {
@@ -776,7 +777,7 @@ export class Presentation {
     this.closeImagePopover();
     await Promise.all(this.slides.map((_, index) => this.loadAssets(index)));
     await Promise.resolve(document.fonts?.ready);
-    if (renderVersion !== this.renderVersion) return;
+    if (renderVersion !== this.renderVersion || this.stage.closest(".deck-screen.is-live-editing")) return;
     const printStage = document.createElement("main");
     printStage.className = "print-stage";
     printStage.setAttribute("aria-hidden", "true");

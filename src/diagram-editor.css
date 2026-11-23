@@ -1,0 +1,62 @@
+.diagram-editor {
+  width: min(940px, calc(100% - 20px));
+  height: min(660px, calc(100dvh - 20px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid #d8d4cb;
+  border-radius: 10px;
+  background: #fff;
+  color: #24211c;
+}
+.diagram-editor::backdrop { background: #16191ac9; }
+.diagram-layout { display: flex; flex-direction: column; height: 100%; }
+.diagram-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 8px 10px; }
+.diagram-bar strong { margin-inline-end: auto; font-size: 14px; }
+.diagram-bar button {
+  padding: 5px 9px;
+  border: 1px solid #cbc6bd;
+  border-radius: 5px;
+  background: #fff;
+  color: #24211c;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.diagram-bar button[aria-pressed="true"] { border-color: #344e8c; background: #eaf0fa; color: #243c70; }
+.diagram-bar button:disabled { opacity: .5; cursor: default; }
+.diagram-bar [data-action="insert"] { border-color: #243c70; background: #243c70; color: #fff; }
+.diagram-tools { border-top: 1px solid #e5e1d9; }
+.diagram-workarea { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #edece8; touch-action: none; }
+.diagram-canvas { position: absolute; inset: 0; }
+.diagram-canvas > svg { display: block; overflow: hidden; }
+.diagram-canvas.has-routed-selection :is(#selectorGrip_rotate, #selectorGrip_rotateconnector) { display: none; }
+.diagram-status { margin: 0; padding: 5px 10px; min-height: 24px; font-size: 12px; }
+.diagram-bend {
+  position: absolute;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #36548d;
+  opacity: 0;
+  pointer-events: none;
+  cursor: grab;
+  touch-action: none;
+}
+.diagram-bend::after {
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin: auto;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+.diagram-bend.is-visible, .diagram-bend:focus-visible { opacity: 1; pointer-events: auto; }
+.diagram-bend:active { cursor: grabbing; }

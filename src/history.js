@@ -25,7 +25,7 @@ export function resolveHistorySlide(presentation, location) {
 }
 
 export class HistoryController {
-  constructor({ panel, list, toggle, close, undo, redo, onRestore, currentSlide, resolveSlide, showSlide }) {
+  constructor({ panel, list, toggle, close, undo, redo, onRestore, onError, currentSlide, resolveSlide, showSlide }) {
     this.panel = panel;
     this.list = list;
     this.toggle = toggle;
@@ -33,6 +33,7 @@ export class HistoryController {
     this.undoButton = undo;
     this.redoButton = redo;
     this.onRestore = onRestore;
+    this.onError = onError;
     this.currentSlide = currentSlide;
     this.resolveSlide = resolveSlide;
     this.showSlide = showSlide;
@@ -62,9 +63,7 @@ export class HistoryController {
 
   async step(direction) {
     if (!this.session || this.restoring || !this.session[direction === "undo" ? "canUndo" : "canRedo"]) return;
-    this.restoring = true;
-    this.render();
-    try {
+    await this.runRestore(async () => {
       const location = this.session.stepLocation(direction);
       const target = this.resolveSlide?.(location);
       const shouldNavigate = Number.isInteger(target) && target !== this.currentSlide?.();
@@ -73,21 +72,31 @@ export class HistoryController {
         await pause(300);
       }
       this.session[direction]();
-      this.render();
+    });
+  }
+
+  async restore(index = null) {
+    if (!this.session || this.restoring || index === this.session.historyIndex) return;
+    await this.runRestore(() => {
+      if (index !== null) this.session.restoreHistory(index);
+    });
+  }
+
+  async runRestore(change) {
+    const editor = this.editor;
+    this.restoring = true;
+    this.render();
+    try {
+      if (editor && !(await editor.beforeRestore())) return;
+      await change();
       await this.onRestore?.(this.session);
+      await editor?.reopen();
+    } catch (error) {
+      this.onError?.(error);
     } finally {
       this.restoring = false;
       this.render();
     }
-  }
-
-  async restore(index = null) {
-    if (!this.session || this.restoring) return;
-    this.restoring = true;
-    if (index !== null) this.session.restoreHistory(index);
-    this.render();
-    try { await this.onRestore?.(this.session); }
-    finally { this.restoring = false; this.render(); }
   }
 
   render() {
@@ -119,6 +128,7 @@ export class HistoryController {
   togglePanel() { if (this.panel.hidden) this.open(); else this.close(); }
 
   handleKeydown(event) {
+    if (event.target.closest?.(".diagram-editor[open]")) return;
     if (event.key === "Escape" && !this.panel.hidden) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -126,7 +136,7 @@ export class HistoryController {
       return;
     }
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== "z") return;
-    if (event.target.matches?.("input, textarea, [contenteditable='true']")) return;
+    if (event.target.closest?.("input, textarea, [contenteditable]:not([contenteditable='false'])")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     void this.step(event.shiftKey ? "redo" : "undo");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { editableSection, hasEmbeddedImageData, needsSourceEditor, replaceEditableSection } from "../src/deck-editor-source.js";
+import { editableSection, hasEmbeddedImageData, markdownInsertion, needsSourceEditor, replaceEditableSection } from "../src/deck-editor-source.js";
 
 describe("slide editor source mapping", () => {
   it("replaces only the active slide and remaps later comment offsets", () => {
@@ -24,5 +24,14 @@ describe("slide editor source mapping", () => {
     expect(hasEmbeddedImageData("![x][id]\n\n[id]: data:image/png;base64,AAAA")).toBe(true);
     expect(hasEmbeddedImageData('<img src="blob:https://example.com/abc">')).toBe(true);
     expect(hasEmbeddedImageData("![x](https://example.com/x.png)\n![y](./assets/y.png)")).toBe(false);
+  });
+
+  it("formats the selection and separates block inserts from surrounding text", () => {
+    expect(markdownInsertion("bold", "Before ", "selected", " after")).toBe("**selected**");
+    expect(markdownInsertion("task", "Before\n", "First\nSecond", "\nAfter"))
+      .toBe("\n- [ ] First\n- [ ] Second\n");
+    expect(markdownInsertion("table", "Before", "", "After")).toMatch(/^\n\n\| .*\n\| --- \| --- \|\n.*\n\n$/);
+    expect(markdownInsertion("image", "", "", "", { alt: "Chart", reference: "./assets/chart.png" }))
+      .toBe("![Chart](./assets/chart.png)");
   });
 });

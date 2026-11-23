@@ -3,7 +3,9 @@ import "@milkdown/crepe/theme/classic.css";
 import "./deck-editor.css";
 import { processMarkdown } from "./markdown.js";
 import { renderSlideElement } from "./presentation.js";
-import { editableSection, hasEmbeddedImageData, needsSourceEditor, replaceEditableSection } from "./deck-editor-source.js";
+import {
+  editableSection, hasEmbeddedImageData, markdownInsertion, markdownInsertTools, needsSourceEditor, replaceEditableSection,
+} from "./deck-editor-source.js";
 
 let CrepeClass;
 let activeEditor = null;
@@ -46,7 +48,9 @@ function imageSlot(image, assetManager, isCurrent, onReady) {
   return slot;
 }
 
-export async function openDeckEditor({ session, slideModel, slideIndex, presentation, assetManager, onSave, onUploadImage }) {
+export async function openDeckEditor({
+  session, slideModel, slideIndex, presentation, assetManager, historyController, initialView, reopen, onSave, onUploadImage,
+}) {
   if (activeEditor) { activeEditor.focus(); return; }
   const section = editableSection(session.markdown, slideModel);
   const original = section.markdown;
@@ -54,6 +58,9 @@ export async function openDeckEditor({ session, slideModel, slideIndex, presenta
   const originalRecord = presentation.slides[slideIndex];
   if (!originalRecord) throw new Error("The active slide is no longer available.");
   const deck = presentation.stage.closest(".deck-screen");
+  const editButton = deck.querySelector("#edit-toggle");
+  const revisionControls = deck.querySelector("#editor-history");
+  const inactiveControls = deck.querySelectorAll(".deck-topbar, .deck-control-cluster, .slide-outline, .resume-prompt");
   const sourceOnly = needsSourceEditor(original) || slideModel?.imageOnly || !originalRecord.element.querySelector(".slide-copy");
   let previewRecord = { ...originalRecord, element: originalRecord.element.cloneNode(true) };
   previewRecord.element.classList.add("is-active", "is-live-editing");
@@ -76,25 +83,31 @@ export async function openDeckEditor({ session, slideModel, slideIndex, presenta
         <button type="button" role="tab" data-view="source">Markdown</button>
       </div>
       <span class="deck-editor-error" role="alert" aria-live="polite"></span>
+      <button type="button" data-action="diagram">Diagram</button>
       <button type="button" data-action="cancel">Cancel</button>
       <button type="button" data-action="save" class="deck-editor-save">Save slide</button>
     </div>
     <div class="deck-editor-toolbar-host milkdown" aria-label="Formatting toolbar"></div>
-    <div class="deck-editor-source-tools" aria-label="Presentation Markdown inserts" hidden>
-      <button type="button" data-insert="toc">Table of contents</button>
-      <button type="button" data-insert="caption">Caption</button>
-      <button type="button" data-insert="grouped-table">Grouped table</button>
-      <button type="button" data-insert="slide-break">Slide break</button>
+    <div class="deck-editor-source-tools" role="group" aria-label="Insert Markdown" hidden>
+      ${Object.entries(markdownInsertTools).map(([tool, label]) => (
+        `<button type="button" data-insert="${tool}">${label}</button>`
+      )).join("")}
+      ${onUploadImage ? '<button type="button" data-action="upload">Upload image</button><input type="file" accept="image/*" hidden>' : ""}
     </div>
     <textarea class="deck-editor-source" aria-label="Slide Markdown source" spellcheck="false" hidden></textarea>`;
   deck.append(panel);
+  panel.querySelector(".deck-editor-header").insertBefore(revisionControls, panel.querySelector(".deck-editor-error"));
+  panel.append(historyController.panel);
+  revisionControls.hidden = false;
+  editButton.setAttribute("aria-expanded", "true");
+  for (const control of inactiveControls) control.inert = true;
   const source = panel.querySelector(".deck-editor-source");
   const sourceTools = panel.querySelector(".deck-editor-source-tools");
   const toolbarHost = panel.querySelector(".deck-editor-toolbar-host");
   const error = panel.querySelector(".deck-editor-error");
   const save = panel.querySelector('[data-action="save"]');
   source.value = original;
-  let view = sourceOnly ? "source" : "visual";
+  let view = sourceOnly || initialView === "source" ? "source" : "visual";
   let crepe = null;
   let visualHost = null;
   let titleElement = null;
@@ -200,7 +213,10 @@ export async function openDeckEditor({ session, slideModel, slideIndex, presenta
     crepe = new Crepe({
       root: visualHost,
       defaultValue: heading.body,
-      features: { [Crepe.Feature.TopBar]: true },
+      features: {
+        [Crepe.Feature.TopBar]: true,
+        [Crepe.Feature.BlockEdit]: false,
+      },
       featureConfigs: {
         [Crepe.Feature.ImageBlock]: {
           onUpload: async (file) => {
@@ -208,7 +224,7 @@ export async function openDeckEditor({ session, slideModel, slideIndex, presenta
               showError("Paste an existing image URL instead of an image file.");
               throw new Error("Add images by URL in this editor.");
             }
-            try { return await onUploadImage(file, currentSection()); }
+            try { return (await onUploadImage(file, currentSection())).reference; }
             catch (cause) { showError(cause.message); throw cause; }
           },
           inlineUploadPlaceholderText: onUploadImage ? "or paste link" : "Paste image URL",
@@ -268,15 +284,36 @@ export async function openDeckEditor({ session, slideModel, slideIndex, presenta
     document.removeEventListener("keydown", handleKeydown, true);
     window.removeEventListener("beforeunload", handleBeforeUnload);
     window.removeEventListener("popstate", cancel);
+    historyController.editor = null;
+    historyController.close();
+    revisionControls.hidden = true;
+    deck.append(revisionControls, historyController.panel);
     panel.remove();
     deck.classList.remove("is-live-editing");
     deck.classList.remove("is-url-only-edit");
+    editButton.setAttribute("aria-expanded", "false");
+    for (const control of inactiveControls) control.inert = false;
     if (restore && presentation.slides[slideIndex] === previewRecord) {
       previewRecord.element.replaceWith(originalRecord.element);
       presentation.slides[slideIndex] = originalRecord;
       presentation.fitCurrent();
     }
     activeEditor = null;
+    editButton.focus({ preventScroll: true });
+  };
+  historyController.editor = {
+    beforeRestore: async () => {
+      if (busy) return false;
+      if (currentSection() !== original) {
+        historyController.close();
+        showError("Save or cancel your slide changes before restoring a revision.");
+        return false;
+      }
+      busy = true;
+      await cleanup(true);
+      return true;
+    },
+    reopen: () => reopen(view),
   };
   const cancel = () => { if (!busy) { busy = true; void cleanup(true); } };
   const handleKeydown = (event) => {
@@ -320,24 +357,81 @@ export async function openDeckEditor({ session, slideModel, slideIndex, presenta
     finally { busy = false; }
   }));
 
-  const snippets = {
-    toc: "<!-- TOC -->",
-    caption: "{: .caption}\nCaption text",
-    "grouped-table": "| Metric | ::2_ Group |\n| ^ | First | Second |\n| --- | --- | --- |\n| Item | 1 | 2 |",
-    "slide-break": "---",
+  const insertMarkdown = (tool, asset) => {
+    const { selectionStart: start, selectionEnd: end, value } = source;
+    const text = markdownInsertion(tool, value.slice(0, start), value.slice(start, end), value.slice(end), asset);
+    source.focus();
+    source.setSelectionRange(start, end);
+    if (!document.execCommand?.("insertText", false, text)) {
+      source.setRangeText(text, start, end, "end");
+      source.dispatchEvent(new Event("input"));
+    }
+    if (tool === "image" && !asset) {
+      const urlStart = start + text.lastIndexOf("https://");
+      source.setSelectionRange(urlStart, start + text.length - 1);
+    }
   };
+  panel.querySelector('[data-action="diagram"]').addEventListener("click", async (event) => {
+    if (busy) return;
+    const button = event.currentTarget;
+    busy = true;
+    button.disabled = true;
+    save.disabled = true;
+    try {
+      const { openDiagramEditor } = await import("./diagram-editor.js");
+      await openDiagramEditor(deck, onUploadImage && (async (file) => {
+        const markdown = currentSection();
+        const asset = await onUploadImage(file, markdown);
+        if (view === "visual") {
+          source.value = markdown;
+          await destroyVisual();
+          setView("source");
+          source.setSelectionRange(markdown.length, markdown.length);
+          if (markdown && !markdown.endsWith("\n\n")) {
+            source.setRangeText(markdown.endsWith("\n") ? "\n" : "\n\n", markdown.length, markdown.length, "end");
+          }
+        }
+        insertMarkdown("image", asset);
+      }));
+    } catch (error) {
+      showError(error.message || "Could not open the diagram editor.");
+    } finally {
+      busy = false;
+      button.disabled = false;
+      save.disabled = false;
+      if (view === "source") source.focus();
+      else button.focus();
+    }
+  });
   sourceTools.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-insert]");
-    if (!button) return;
-    const snippet = snippets[button.dataset.insert];
-    const before = source.value.slice(0, source.selectionStart);
-    const after = source.value.slice(source.selectionEnd);
-    const leading = before && !before.endsWith("\n\n") ? (before.endsWith("\n") ? "\n" : "\n\n") : "";
-    const trailing = after && !after.startsWith("\n\n") ? (after.startsWith("\n") ? "\n" : "\n\n") : "";
-    source.setRangeText(`${leading}${snippet}${trailing}`, source.selectionStart, source.selectionEnd, "end");
-    source.focus();
-    source.dispatchEvent(new Event("input"));
+    if (button && !busy) insertMarkdown(button.dataset.insert);
   });
+  if (onUploadImage) {
+    const fileInput = sourceTools.querySelector('input[type="file"]');
+    sourceTools.querySelector('[data-action="upload"]').addEventListener("click", () => {
+      if (!busy) fileInput.click();
+    });
+    fileInput.addEventListener("change", async () => {
+      const [file] = fileInput.files;
+      fileInput.value = "";
+      if (!file || busy) return;
+      busy = true;
+      source.readOnly = true;
+      save.disabled = true;
+      try {
+        const asset = await onUploadImage(file, source.value);
+        source.readOnly = false;
+        insertMarkdown("image", asset);
+      } catch (cause) {
+        showError(cause.message || "Could not add the image.");
+      } finally {
+        source.readOnly = false;
+        busy = false;
+        save.disabled = false;
+      }
+    });
+  }
   source.addEventListener("input", () => {
     showError("");
     window.clearTimeout(sourceTimer);

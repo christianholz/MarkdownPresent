@@ -13,10 +13,10 @@ import {
 } from "./example-storage.js";
 import { DocumentSession } from "./document-session.js";
 import { HistoryController, resolveHistorySlide } from "./history.js";
-import { downloadDeckWorkspace, insertImageUrlIntoSlide } from "./asset-workspace.js";
+import { downloadDeckWorkspace } from "./asset-workspace.js";
 import { exportPresentationPdf } from "./pdf-export.js";
 import { LayoutDiagnostics } from "./diagnostics.js";
-import { copyText, handleDeckNavigationKeydown, promptForImageUrl, setDeckEditControlsOpen, syncPdfExport, toggleFullscreen } from "./deck-controls.js";
+import { copyText, handleDeckNavigationKeydown, syncPdfExport, toggleFullscreen } from "./deck-controls.js";
 import {
   pastedSlideUrl,
   positionStorageKey,
@@ -217,25 +217,21 @@ document.querySelector("#app").innerHTML = `
         <button id="outline-toggle" aria-label="Show content overview" aria-controls="slide-outline" aria-expanded="false" title="Content overview">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>
         </button>
-        <button id="edit-toggle" aria-label="Show editing tools" aria-controls="edit-controls" aria-expanded="false" title="Edit">
+        <button id="edit-toggle" aria-label="Edit slide" aria-expanded="false" title="Edit">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.6-10.6a2.2 2.2 0 0 0-3.1-3.1L5.1 15.9 4 20Z"/><path d="m14.5 6.5 3 3"/></svg>
         </button>
-        <button id="next" aria-label="Next slide">→</button>
-      </nav>
-      <nav class="edit-controls" id="edit-controls" aria-label="Editing tools" hidden>
-        <button id="undo" aria-label="Undo last edit" title="Undo" disabled>↶</button>
-        <button id="redo" aria-label="Redo last edit" title="Redo" disabled>↷</button>
-        <button id="history-toggle" aria-label="Show edit history" aria-controls="history-panel" aria-expanded="false" title="Edit history">
-          <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6M12 8v4l2.8 1.7"/></svg>
-        </button>
-        <button id="edit-slide" aria-label="Edit this slide" title="Edit slide">✎</button>
-        <button id="add-image" aria-label="Add an image URL to this slide" title="Add image URL"><span class="img-control-icon" aria-hidden="true">IMG</span></button>
         <button id="download-comments" aria-label="Download changes" title="Download changes" hidden>⤓</button>
         <button id="export-pdf" aria-label="Export all slides as PDF" title="Export PDF">
           <svg class="control-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7Z"/><path d="M14 3v5h4M12 11v6m-3-3 3 3 3-3"/></svg>
         </button>
+        <button id="next" aria-label="Next slide">→</button>
       </nav>
     </div>
+    <nav class="deck-editor-history" id="editor-history" aria-label="Revision controls" hidden>
+      <button id="undo" aria-label="Undo saved edit" title="Undo saved edit" disabled>↶</button>
+      <button id="redo" aria-label="Redo saved edit" title="Redo saved edit" disabled>↷</button>
+      <button id="history-toggle" aria-controls="history-panel" aria-expanded="false">Past revisions</button>
+    </nav>
     <p id="change-status" class="unsaved-comment-count" aria-live="polite" hidden></p>
     <aside class="slide-outline" id="slide-outline" aria-label="Slide list" hidden>
       <header class="slide-outline-header"><strong>Slides</strong><button id="outline-close" aria-label="Close slide list">×</button></header>
@@ -243,7 +239,7 @@ document.querySelector("#app").innerHTML = `
       <nav class="slide-outline-list" id="outline-list" aria-label="Jump to slide"></nav>
     </aside>
     <aside class="history-panel" id="history-panel" aria-label="Edit history" hidden>
-      <header class="slide-outline-header"><strong>Edit history</strong><button id="history-close" aria-label="Close edit history">×</button></header>
+      <header class="slide-outline-header"><strong>Past revisions</strong><button id="history-close" aria-label="Close edit history">×</button></header>
       <div class="history-list" id="history-list"></div>
     </aside>
     <section class="resume-prompt" id="resume-prompt" aria-live="polite" hidden>
@@ -270,7 +266,6 @@ let historyController;
 let activePositionKey = null;
 let activeCopySlideLink = null;
 let suppressPositionPersistence = false;
-let activeImageUrlHandler = null;
 let activeDeckEditorHandler = null;
 let diagnostics;
 let selectedFiles = [];
@@ -300,11 +295,9 @@ function setScreen(name) {
   document.querySelectorAll("[data-screen]").forEach((screen) => { screen.hidden = screen.dataset.screen !== name; });
   if (name !== "deck") {
     $("#resume-prompt").hidden = true;
-    setEditControlsOpen(false);
+    historyController?.close();
   }
 }
-
-function setEditControlsOpen(open) { setDeckEditControlsOpen(open, () => historyController?.close()); }
 
 function showError(error) {
   $("#error-message").textContent = error?.message || String(error);
@@ -500,6 +493,7 @@ async function loadDeck(repository, source, label, state = {}) {
       close: $("#history-close"),
       undo: $("#undo"),
       redo: $("#redo"),
+      onError: showError,
       currentSlide: () => presentation?.atEnd ? null : presentation?.index,
       resolveSlide: (location) => resolveHistorySlide(presentation, location),
       showSlide: (index) => presentation?.show(index),
@@ -511,20 +505,7 @@ async function loadDeck(repository, source, label, state = {}) {
     $("#deck-name").textContent = label || "Presentation";
     activePositionKey = state.positionKey || null;
     activeCopySlideLink = state.copySlideLink || null;
-    activeImageUrlHandler = async (url) => {
-      const slideIndex = presentation.index;
-      const sourceStart = presentation.slides[slideIndex]?.model.sourceEnd;
-      const result = insertImageUrlIntoSlide(
-        session.markdown,
-        presentation.slides[presentation.index]?.model,
-        url,
-        session.annotationState,
-      );
-      session.applyMarkdown(result.markdown, result.annotationState, "Add image", { slideIndex, sourceStart });
-      state.onSourceMarkdownChange?.(session.markdown);
-      await loadDeck(deckRepository, source, label, deckState(state, session, manager));
-    };
-    activeDeckEditorHandler = async () => {
+    activeDeckEditorHandler = async (initialView) => {
       const slideIndex = Math.min(presentation.index, presentation.slides.length - 1);
       const { openDeckEditor } = await import("./deck-editor.js");
       await openDeckEditor({
@@ -533,6 +514,9 @@ async function loadDeck(repository, source, label, state = {}) {
         slideIndex,
         presentation,
         assetManager: manager,
+        historyController,
+        initialView,
+        reopen: (view) => activeDeckEditorHandler?.(view),
         onSave: async (nextMarkdown, annotationState, details) => {
           session.applyMarkdown(nextMarkdown, annotationState, details.historyLabel, details);
           state.onSourceMarkdownChange?.(nextMarkdown);
@@ -540,7 +524,6 @@ async function loadDeck(repository, source, label, state = {}) {
         },
       });
     };
-    $("#add-image").hidden = !activeImageUrlHandler;
     setScreen("deck");
     $("#stage").focus({ preventScroll: true });
     suppressPositionPersistence = Boolean(savedPosition);
@@ -861,16 +844,9 @@ window.addEventListener("popstate", (event) => {
 });
 $("#fullscreen").addEventListener("click", toggleFullscreen);
 $("#edit-toggle").addEventListener("click", () => {
-  setEditControlsOpen(!$(".deck-control-cluster").classList.contains("is-edit-open"));
+  if (activeDeckEditorHandler) void activeDeckEditorHandler().catch(showError);
 });
-$("#edit-slide").addEventListener("click", () => { if (activeDeckEditorHandler) void activeDeckEditorHandler().catch(showError); });
 $("#export-pdf").addEventListener("click", () => { void exportPresentationPdf(presentation, $("#pdf-status")); });
-const addImageButton = $("#add-image");
-addImageButton.addEventListener("pointerleave", () => addImageButton.classList.remove("is-hover-suppressed"));
-addImageButton.addEventListener("click", (event) => {
-  if (event.detail > 0) addImageButton.classList.add("is-hover-suppressed");
-  if (activeImageUrlHandler) promptForImageUrl($(".deck-screen"), activeImageUrlHandler);
-});
 document.addEventListener("mdpresent:diagnosticschange", (event) => {
   syncPdfExport(!event.detail?.enabled);
 });
