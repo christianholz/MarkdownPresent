@@ -1,5 +1,9 @@
 import SvgCanvas from "@svgedit/svgcanvas";
-import DOMPurify from "dompurify";
+import { sanitizeDiagramSvg } from "./diagram-svg.js";
+import {
+  applyDiagramPlacement, boundDiagramPlacement, defaultPlacement, parseDiagramPlacement,
+  placementAttribute, serializeDiagramPlacement,
+} from "./diagram-placement.js";
 import { triggerDownload } from "./asset-workspace.js";
 import { installBendHandles, routeSelector, toggleRoundedRoute } from "./diagram-connectors.js";
 import "./diagram-editor.css";
@@ -10,70 +14,69 @@ const arrowId = "mdpresent-arrowhead";
 let editor;
 
 const tools = {
-  select: ["Select", "select"],
-  rect: ["Rectangle", "rect"],
-  rounded: ["Rounded rectangle", "rect"],
-  circle: ["Circle", "circle"],
-  line: ["Line", "line"],
-  arrow: ["Arrow", "line"],
-  pen: ["Pen", "path"],
+  select: ["Select", "select", '<path d="M5 3v15l4-4 3 6 3-1-3-6h6z"/>'],
+  rect: ["Rectangle", "rect", '<rect x="4" y="5" width="16" height="14"/>'],
+  rounded: ["Rounded rectangle", "rect", '<rect x="4" y="5" width="16" height="14" rx="4"/>'],
+  circle: ["Circle", "circle", '<circle cx="12" cy="12" r="8"/>'],
+  line: ["Line", "line", '<path d="m5 19 14-14"/>'],
+  arrow: ["Arrow", "line", '<path d="m5 19 14-14m-7 0h7v7"/>'],
+  pen: ["Pen", "path", '<path d="M4 18c8 0 8-12 16-12M9 17l6-10"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="6" r="2"/>'],
 };
 
-function svgFromFile(text) {
-  const document = new DOMParser().parseFromString(text, "image/svg+xml");
-  if (document.documentElement.localName !== "svg" || document.documentElement.namespaceURI !== namespace) {
-    throw new Error("Choose a valid SVG file.");
-  }
-  const clean = DOMPurify.sanitize(text, {
-    PARSER_MEDIA_TYPE: "application/xhtml+xml",
-    ALLOWED_TAGS: ["svg", "g", "rect", "circle", "ellipse", "line", "path", "polyline", "polygon", "defs", "marker", "title", "desc"],
-    KEEP_CONTENT: false,
-    ALLOWED_ATTR: [
-      "xmlns", "id", "viewBox", "width", "height", "x", "y", "rx", "ry", "r", "cx", "cy",
-      "x1", "x2", "y1", "y2", "d", "points", "transform", "fill", "fill-opacity", "fill-rule",
-      "stroke", "stroke-width", "stroke-opacity", "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "opacity",
-      "marker-end", "marker-start", "markerWidth", "markerHeight", "markerUnits", "refX", "refY", "orient",
-    ],
-    ALLOW_DATA_ATTR: false,
-    ADD_ATTR: ["data-mdpresent-route", "data-mdpresent-bend"],
-  });
-  if (!clean) throw new Error("This SVG has no supported drawing.");
-  return clean;
+function icon(path) {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
 }
 
-async function createEditor(host) {
-  const dialog = document.createElement("dialog");
+async function createEditor(slot) {
+  const dialog = document.createElement("section");
   dialog.className = "diagram-editor";
-  dialog.setAttribute("aria-label", "Diagram editor");
+  dialog.setAttribute("aria-label", "Diagram tools");
+  dialog.hidden = true;
   dialog.innerHTML = `
-    <div class="diagram-layout">
       <header class="diagram-bar">
         <strong>Diagram</strong>
         <button type="button" data-action="open">Open SVG</button>
         <input type="file" accept=".svg,image/svg+xml" hidden>
         <button type="button" data-action="undo" aria-label="Undo diagram edit" title="Undo">↶</button>
         <button type="button" data-action="redo" aria-label="Redo diagram edit" title="Redo">↷</button>
-        <button type="button" data-action="close">Close</button>
+        <button type="button" data-action="close">Cancel drawing</button>
         <button type="button" data-action="download">Download SVG</button>
-        <button type="button" data-action="insert">Insert diagram</button>
+        <button type="button" data-action="insert">Apply diagram</button>
       </header>
       <div class="diagram-bar diagram-tools" role="group" aria-label="Drawing tools">
-        ${Object.entries(tools).map(([key, [label]]) => `<button type="button" data-tool="${key}" aria-pressed="false">${label}</button>`).join("")}
-        <button type="button" data-action="finish" hidden>Finish path</button>
-        <button type="button" data-action="route" aria-pressed="false" title="Select a line or arrow to change its route">Rounded route</button>
-        <button type="button" data-action="delete" aria-label="Delete selection">Delete</button>
+        ${Object.entries(tools).map(([key, [label, , path]]) => (
+          `<button type="button" data-tool="${key}" aria-pressed="false" aria-label="${label}" title="${label}">${icon(path)}</button>`
+        )).join("")}
+        <button type="button" data-action="finish" aria-label="Finish path" title="Finish path" hidden>${icon('<path d="m5 12 4 4 10-10"/>')}</button>
+        <button type="button" data-action="route" aria-pressed="false" aria-label="Rounded route" title="Rounded route for the selected line or arrow">${icon('<path d="M4 6h5a3 3 0 0 1 3 3v6a3 3 0 0 0 3 3h5"/>')}</button>
+        <button type="button" data-action="delete" aria-label="Delete selection" title="Delete selection">${icon('<path d="M4 6h16M9 6V3h6v3m3 0-1 14H7L6 6m4 4v6m4-6v6"/>')}</button>
       </div>
-      <div class="diagram-workarea" tabindex="0" aria-label="Drawing canvas">
-        <div class="diagram-canvas"></div>
+      <div class="diagram-bar diagram-placement" role="group" aria-label="Position and size on the slide, in percent">
+        <label>X <input type="number" min="0" max="100" step="0.1" data-position="x" aria-label="Horizontal position (%)"></label>
+        <label>Y <input type="number" min="0" max="100" step="0.1" data-position="y" aria-label="Vertical position (%)"></label>
+        <label>Width <input type="number" min="5" max="100" step="0.1" data-position="width" aria-label="Width (%)"></label>
+        <label>Height <input type="number" min="5" max="100" step="0.1" data-position="height" aria-label="Height (%)"></label>
+        <span aria-hidden="true">%</span>
       </div>
-      <p class="diagram-status" role="status"></p>
-    </div>`;
-  host.append(dialog);
-  const workarea = dialog.querySelector(".diagram-workarea");
-  const surface = dialog.querySelector(".diagram-canvas");
+      <p class="diagram-status" role="status"></p>`;
+  const workarea = document.createElement("div");
+  workarea.className = "diagram-workarea";
+  workarea.tabIndex = 0;
+  workarea.setAttribute("aria-label", "Drawing canvas");
+  const surface = document.createElement("div");
+  surface.className = "diagram-canvas";
+  const moveHandle = document.createElement("button");
+  moveHandle.type = "button";
+  moveHandle.className = "diagram-move-handle";
+  moveHandle.title = "Drag to position the diagram";
+  moveHandle.setAttribute("aria-label", "Move diagram");
+  moveHandle.innerHTML = icon('<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>');
+  workarea.append(surface, moveHandle);
+  slot.append(workarea);
   const status = dialog.querySelector(".diagram-status");
   const action = (name) => dialog.querySelector(`[data-action="${name}"]`);
   const fileInput = dialog.querySelector('input[type="file"]');
+  const positionFields = [...dialog.querySelectorAll("[data-position]")];
   const canvas = new SvgCanvas(surface, {
     dimensions, baseUnit: "px", show_outside_canvas: false, initOpacity: 1,
     initFill: { color: "none", opacity: 1 },
@@ -85,6 +88,8 @@ async function createEditor(host) {
   let insertDiagram = null;
   let resolveClose;
   let frame;
+  let moveGesture;
+  let displayedPlacement;
 
   const shapes = "rect, circle, ellipse, line, path, polyline, polygon";
   const hasDrawing = () => [...canvas.getSvgContent().querySelectorAll(shapes)]
@@ -97,9 +102,34 @@ async function createEditor(host) {
   };
   const setStatus = (message = "") => { status.textContent = message; };
   const refreshBends = installBendHandles(canvas, workarea, () => sync());
+  const getPlacement = () => parseDiagramPlacement(canvas.getSvgContent().getAttribute(placementAttribute)) || defaultPlacement;
+
+  function showPlacement(placement, syncFields = true) {
+    const value = serializeDiagramPlacement(placement);
+    if (displayedPlacement !== value) {
+      applyDiagramPlacement(workarea.parentElement, placement);
+      displayedPlacement = value;
+    }
+    if (syncFields) {
+      for (const field of positionFields) {
+        if (field !== document.activeElement) field.value = placement[field.dataset.position];
+      }
+    }
+  }
+
+  function changePlacement(placement) {
+    const drawingRoot = canvas.getSvgContent();
+    const previous = drawingRoot.getAttribute(placementAttribute);
+    const next = serializeDiagramPlacement(placement);
+    if (next !== previous) {
+      drawingRoot.setAttribute(placementAttribute, next);
+      canvas.addCommandToHistory(new canvas.history.ChangeElementCommand(drawingRoot, { [placementAttribute]: previous }, "diagram position"));
+    }
+    sync();
+  }
 
   function sync() {
-    if (!dialog.open) return;
+    if (dialog.hidden) return;
     const active = canvas.getMode() === "select" ? "select" : tool;
     const line = selectedLine();
     const routed = line?.matches(routeSelector) ?? false;
@@ -122,6 +152,7 @@ async function createEditor(host) {
     action("download").disabled = !canExport;
     action("insert").disabled = !canExport;
     action("close").disabled = pending;
+    if (!moveGesture) showPlacement(getPlacement());
     refreshBends();
   }
 
@@ -178,14 +209,64 @@ async function createEditor(host) {
   workarea.addEventListener("pointermove", scheduleSync);
 
   function layout() {
-    if (!dialog.open || !workarea.clientWidth || !workarea.clientHeight) return;
+    if (dialog.hidden || !workarea.clientWidth || !workarea.clientHeight) return;
     const { w, h } = canvas.getResolution();
     canvas.clearSelection();
-    canvas.setZoom(Math.min(1, (workarea.clientWidth - 28) / w, (workarea.clientHeight - 28) / h));
+    canvas.setZoom(Math.min(workarea.clientWidth / w, workarea.clientHeight / h));
     canvas.updateCanvas(workarea.clientWidth, workarea.clientHeight);
     sync();
   }
   new ResizeObserver(layout).observe(workarea);
+
+  for (const field of positionFields) {
+    field.addEventListener("change", () => {
+      if (pending || moveGesture) return;
+      const placement = getPlacement();
+      const number = field.valueAsNumber;
+      const next = Number.isFinite(number)
+        ? boundDiagramPlacement({ ...placement, [field.dataset.position]: number }) : placement;
+      changePlacement(next);
+      field.value = next[field.dataset.position];
+    });
+  }
+  moveHandle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || pending || moveGesture) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const slide = workarea.closest(".slide");
+    const bounds = slide.getBoundingClientRect();
+    const initial = getPlacement();
+    let next = initial;
+    const gesture = new AbortController();
+    moveGesture = gesture;
+    const { pointerId, clientX, clientY } = event;
+    const options = { signal: gesture.signal };
+    document.addEventListener("pointermove", (move) => {
+      if (move.pointerId !== pointerId) return;
+      next = boundDiagramPlacement({
+        ...initial,
+        x: initial.x + (move.clientX - clientX) * 100 / bounds.width,
+        y: initial.y + (move.clientY - clientY) * 100 / bounds.height,
+      });
+      showPlacement(next, false);
+    }, options);
+    const end = (release) => {
+      if (release.pointerId !== pointerId) return;
+      gesture.abort();
+      moveGesture = null;
+      changePlacement(release.type === "pointercancel" ? initial : next);
+    };
+    document.addEventListener("pointerup", end, options);
+    document.addEventListener("pointercancel", end, options);
+  });
+  moveHandle.addEventListener("keydown", (event) => {
+    const directions = { ArrowLeft: ["x", -1], ArrowRight: ["x", 1], ArrowUp: ["y", -1], ArrowDown: ["y", 1] };
+    if (!directions[event.key] || pending) return;
+    event.preventDefault();
+    const [axis, step] = directions[event.key];
+    const placement = getPlacement();
+    changePlacement(boundDiagramPlacement({ ...placement, [axis]: placement[axis] + step * (event.shiftKey ? 5 : 1) }));
+  });
 
   function selectTool(name) {
     tool = name;
@@ -209,7 +290,7 @@ async function createEditor(host) {
   }
 
   function historyStep(direction) {
-    if (pending || drawing) return;
+    if (pending || drawing || moveGesture) return;
     if (canvas.getDrawnPath()) {
       selectTool("select");
       return;
@@ -244,7 +325,7 @@ async function createEditor(host) {
   action("delete").addEventListener("click", deleteSelection);
   action("undo").addEventListener("click", () => historyStep("undo"));
   action("redo").addEventListener("click", () => historyStep("redo"));
-  action("close").addEventListener("click", () => dialog.close());
+  action("close").addEventListener("click", () => close());
   action("open").addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", async () => {
     const [file] = fileInput.files;
@@ -252,9 +333,11 @@ async function createEditor(host) {
     if (!file || action("open").disabled) return;
     try {
       if (file.size > 2_000_000) throw new Error("Choose an SVG under 2 MB.");
-      const svg = svgFromFile(await file.text());
-      if (!dialog.open || action("open").disabled) return;
+      const svg = sanitizeDiagramSvg(await file.text());
+      if (dialog.hidden || action("open").disabled) return;
+      const currentPlacement = getPlacement();
       if (!canvas.setSvgString(svg, true)) throw new Error("Could not open this SVG.");
+      canvas.getSvgContent().setAttribute(placementAttribute, serializeDiagramPlacement(currentPlacement));
       canvas.undoMgr.resetUndoStack();
       layout();
     } catch (error) { setStatus(error.message); }
@@ -269,18 +352,20 @@ async function createEditor(host) {
     pending = true;
     sync();
     try {
-      await insertDiagram(exportFile());
-      dialog.close();
+      await insertDiagram(exportFile(), serializeDiagramPlacement(getPlacement()));
+      close();
     } catch (error) { setStatus(error.message || "Could not insert the diagram."); }
     finally { pending = false; sync(); }
   });
-  dialog.addEventListener("keydown", (event) => {
+  function handleKeydown(event) {
+    if (event.defaultPrevented || event.isComposing || event.target.matches("input")) return;
     if ((event.ctrlKey || event.metaKey) && !event.altKey && ["z", "y"].includes(event.key.toLowerCase())) {
       event.preventDefault();
       historyStep(event.shiftKey || event.key.toLowerCase() === "y" ? "redo" : "undo");
-    } else if (event.key === "Escape" && canvas.getDrawnPath()) {
+    } else if (event.key === "Escape" && !pending) {
       event.preventDefault();
-      selectTool("select");
+      if (canvas.getDrawnPath()) selectTool("select");
+      else close();
     } else if (event.key === "Enter" && canvas.getDrawnPath()) {
       event.preventDefault();
       finishPath();
@@ -288,28 +373,43 @@ async function createEditor(host) {
       event.preventDefault();
       deleteSelection();
     }
-  });
-  dialog.addEventListener("cancel", (event) => { if (pending) event.preventDefault(); });
-  dialog.addEventListener("close", () => {
+  }
+  dialog.addEventListener("keydown", handleKeydown);
+  workarea.addEventListener("keydown", handleKeydown);
+
+  function close() {
     cancelAnimationFrame(frame);
+    moveGesture?.abort();
+    moveGesture = null;
+    dialog.hidden = true;
+    dialog.remove();
+    workarea.remove();
     const done = resolveClose;
     resolveClose = null;
     insertDiagram = null;
     done?.();
-  });
+  }
 
   return {
-    open(nextHost, onInsert) {
-      if (dialog.open) return Promise.resolve();
-      if (dialog.parentNode !== nextHost) nextHost.append(dialog);
+    open(toolbar, slot, onInsert, svg, placement) {
+      if (!dialog.hidden) return Promise.resolve();
       insertDiagram = onInsert;
-      action("insert").hidden = !onInsert;
+      toolbar.append(dialog);
+      slot.append(workarea);
       canvas.setMode("select");
       canvas.setZoom(1);
       canvas.setResolution(...dimensions);
       canvas.clear();
       drawing = false;
-      dialog.showModal();
+      displayedPlacement = null;
+      try {
+        if (svg && !canvas.setSvgString(sanitizeDiagramSvg(svg), true)) throw new Error("Could not open this SVG.");
+      } catch (error) {
+        close();
+        throw error;
+      }
+      canvas.getSvgContent().setAttribute(placementAttribute, serializeDiagramPlacement(placement || defaultPlacement));
+      dialog.hidden = false;
       selectTool("select");
       layout();
       workarea.focus();
@@ -318,7 +418,7 @@ async function createEditor(host) {
   };
 }
 
-export async function openDiagramEditor(host, onInsert) {
-  editor ||= createEditor(host).catch((error) => { editor = null; throw error; });
-  return (await editor).open(host, onInsert);
+export async function openDiagramEditor(toolbar, slot, onInsert, svg, placement) {
+  editor ||= createEditor(slot).catch((error) => { editor = null; throw error; });
+  return (await editor).open(toolbar, slot, onInsert, svg, placement);
 }

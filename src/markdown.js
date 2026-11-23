@@ -18,6 +18,8 @@ import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import "katex/dist/katex.min.css";
 import { normalizeMarkdownSource } from "./markdown-source.js";
+import { diagramSvgPlacement, sanitizeDiagramSvg } from "./diagram-svg.js";
+import { parseDiagramPlacement, placementTitlePrefix } from "./diagram-placement.js";
 
 export { normalizeMarkdownSource } from "./markdown-source.js";
 
@@ -225,6 +227,9 @@ function drawioEmbedExtension() {
 
 function highlightedCode(token) {
   const requested = String(token.lang || "").trim().split(/\s+/, 1)[0].toLowerCase();
+  if (requested === "mdpresent-svg") {
+    return `<div class="native-diagram-source">${escapeHtml(token.text)}</div>\n`;
+  }
   const language = CODE_LANGUAGE_ALIASES[requested] || requested;
   let value;
   let className = "hljs";
@@ -359,7 +364,7 @@ function tokenElementSelector(token) {
   if (token.type === "paragraph") return "p";
   if (token.type === "list") return token.ordered ? "ol" : "ul";
   if (token.type === "blockquote") return "blockquote";
-  if (token.type === "code") return "pre";
+  if (token.type === "code") return token.lang?.trim().toLowerCase() === "mdpresent-svg" ? ".native-diagram-source" : "pre";
   if (token.type === "table") return "table";
   if (token.type === "groupedTable") return ".grouped-table";
   if (token.type === "slideToc") return ".slide-toc";
@@ -530,6 +535,9 @@ function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceSta
   for (const image of template.content.querySelectorAll("img")) {
     const src = image.getAttribute("src") || "";
     const alt = image.getAttribute("alt") || "";
+    const imageTitle = image.getAttribute("title") || "";
+    const placement = imageTitle.startsWith(placementTitlePrefix)
+      ? parseDiagramPlacement(imageTitle.slice(placementTitlePrefix.length)) : null;
     const range = sourceRanges[sourceRangeIndex++];
     const sourceStart = range ? (sourceOffsets?.[range.start] ?? range.start) : null;
     const sourceEnd = range ? (sourceOffsets?.[range.end] ?? range.end) : null;
@@ -539,12 +547,31 @@ function slideModelFromHtml(html, markdown = "", sourceOffsets = null, sourceSta
     image.remove();
     const drawioSrc = drawioViewerUrl(src);
     if (drawioSrc) diagrams.push({ src: drawioSrc, title: drawioTitle(drawioSrc, alt), sourceStart, sourceEnd });
-    else images.push({ src, alt, sourceStart, sourceEnd });
+    else images.push({ src, alt, sourceStart, sourceEnd, placement });
   }
   for (const parent of imageParents) {
     if (!parent.textContent.trim() && !parent.children.length) parent.remove();
   }
-  const imageOnly = images.length + diagrams.length > 0 && !hasMeaningfulSlideContent(template.content);
+  for (const element of template.content.querySelectorAll(".native-diagram-source")) {
+    try {
+      const svg = sanitizeDiagramSvg(element.textContent.trim());
+      const start = Number(element.dataset.sourceStart);
+      const end = Number(element.dataset.sourceEnd);
+      images.push({
+        src: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+        alt: "Diagram",
+        svg,
+        placement: diagramSvgPlacement(svg),
+        sourceStart: Number.isInteger(start) ? start : null,
+        sourceEnd: Number.isInteger(end) && Number.isInteger(start) ? start + markdown.slice(start, end).trimEnd().length : null,
+      });
+    } catch { /* An unfinished or invalid SVG block can still be fixed in the source editor. */ }
+    element.remove();
+  }
+  if (images.some(({ svg }) => svg)) {
+    images.sort((left, right) => (left.sourceStart ?? Infinity) - (right.sourceStart ?? Infinity));
+  }
+  const imageOnly = (images.some(({ placement }) => !placement) || diagrams.length > 0) && !hasMeaningfulSlideContent(template.content);
   return { markdown, sourceStart, sourceEnd, title, content: template.content, images, diagrams, imageOnly };
 }
 

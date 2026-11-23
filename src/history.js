@@ -128,7 +128,7 @@ export class HistoryController {
   togglePanel() { if (this.panel.hidden) this.open(); else this.close(); }
 
   handleKeydown(event) {
-    if (event.target.closest?.(".diagram-editor[open]")) return;
+    if (event.target.closest?.(".diagram-editor, .diagram-workarea")) return;
     if (event.key === "Escape" && !this.panel.hidden) {
       event.preventDefault();
       event.stopImmediatePropagation();

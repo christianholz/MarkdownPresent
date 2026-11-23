@@ -37,7 +37,8 @@ export function markdownInsertion(tool, before, selected, after, asset = null) {
   if (tool === "link") return `[${selected || "Link text"}](https://example.com)`;
   if (tool === "image") {
     const alt = (asset?.alt || selected || "Image description").replace(/[\\\[\]\r\n]/g, " ").trim();
-    return `![${alt}](${asset?.reference || "https://example.com/image.png"})`;
+    const title = asset?.title ? ` "${asset.title}"` : "";
+    return `![${alt}](${asset?.reference || "https://example.com/image.png"}${title})`;
   }
   const content = selected || "Text";
   const line = (prefix) => content.split("\n").map((text, index) => prefix(index) + text).join("\n");

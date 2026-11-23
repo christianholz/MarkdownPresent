@@ -1,3 +1,5 @@
+import { ignorePresentationShortcut } from "./deck-controls.js";
+
 export function slideOutlineLabel(slide, index) {
   return slide.title?.textContent?.trim() || `Slide ${index + 1}`;
 }
@@ -337,7 +339,7 @@ export class SlideOutline {
       }
       return;
     }
-    if (event.target.matches?.("input, textarea, [contenteditable='true']")) return;
+    if (ignorePresentationShortcut(event)) return;
     if (["g", "G", "=", "+", "/"].includes(event.key)) {
       event.preventDefault();
       if (this.panel.hidden) this.open();

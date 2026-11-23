@@ -224,6 +224,8 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .slide-media:empty { display: none; }
 .image-slot { min-width: 0; min-height: 0; flex: 0 0 auto; display: grid; place-items: center; margin: 0; overflow: visible; background: transparent; }
 .image-slot img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.slide > .slide-positioned-image { position: absolute; z-index: 1; }
+.slide > .slide-positioned-image > img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
 .image-slot img:focus-visible { outline: max(2px, .18cqw) solid var(--accent); outline-offset: max(3px, .25cqw); }
 .drawio-slot { position: relative; width: 100%; height: var(--drawio-height, 100%); min-width: 0; min-height: 0; flex: 0 1 var(--drawio-height, 100%); align-self: center; justify-self: center; overflow: hidden; background: white; }
 .drawio-frame, .drawio-loading { grid-area: 1 / 1; }
@@ -271,7 +273,7 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
 .draft-asset-warning { position: fixed; z-index: 7; top: 58px; left: 50%; width: max-content; max-width: min(680px, calc(100vw - 28px)); margin: 0; padding: 10px 14px; border: 1px solid #cf9a51; border-radius: 9px; color: #493213; background: #fff3dc; box-shadow: 0 8px 28px rgba(0, 0, 0, .16); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; transform: translateX(-50%); }
 .image-loading { color: #8c8b85; font-size: 11px; }
 .image-error { padding: 10px; color: #9b3e36; font-size: 11px; text-align: center; }
-.slide.is-overflowing::before { content: "Content was fitted to its minimum size"; position: absolute; left: 4%; bottom: 2.6%; color: #9b3e36; font-size: 10px; }
+.slide.is-overflowing { outline: 2px solid #c4553a; outline-offset: -2px; }
 .deck-topbar { position: fixed; z-index: 5; top: 4px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; opacity: 0; transition: opacity .2s; }
 .deck-screen:hover .deck-topbar, .deck-topbar:focus-within { opacity: 1; }
 .deck-name { color: rgba(255,255,255,.58); }
@@ -390,5 +392,5 @@ textarea { height: 225px; resize: vertical; font: 13px/1.52 "SFMono-Regular", Co
   .deck-screen, .print-stage { position: static; display: block; width: 13.333333in; height: auto; overflow: visible; visibility: visible; background: white; padding: 0; }
   .slide { display: flex !important; flex-direction: column; width: 13.333333in !important; height: 7.5in !important; max-width: none; max-height: none; break-after: page; page-break-after: always; aspect-ratio: auto; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .slide:last-child { break-after: auto; page-break-after: auto; }
-  .slide.is-overflowing::before { display: none; }
+  .slide.is-overflowing { outline: none; }
 }

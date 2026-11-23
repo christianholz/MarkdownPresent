@@ -22,8 +22,14 @@ export async function toggleFullscreen() {
   else await document.querySelector(".deck-screen").requestFullscreen();
 }
 
+export function ignorePresentationShortcut(event) {
+  return event.defaultPrevented || event.isComposing
+    || Boolean(event.target.closest?.("input, textarea, select, [contenteditable]:not([contenteditable='false']), .comment-editor"))
+    || Boolean(document.querySelector(".deck-screen.is-live-editing"));
+}
+
 export function handleDeckNavigationKeydown(event, presentation) {
-  if (document.querySelector(".deck-screen").hidden || document.querySelector(".deck-screen.is-live-editing") || event.target.matches("input, textarea, [contenteditable='true']")) return;
+  if (document.querySelector(".deck-screen").hidden || ignorePresentationShortcut(event)) return;
   if (event.target.matches("button") && ["Enter", " "].includes(event.key)) return;
   const actions = {
     ArrowRight: () => presentation?.next(), ArrowDown: () => presentation?.next(), PageDown: () => presentation?.next(), " ": () => presentation?.next(),

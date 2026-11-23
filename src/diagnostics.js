@@ -1,3 +1,5 @@
+import { ignorePresentationShortcut } from "./deck-controls.js";
+
 function dimensions(element) {
   if (!element) return "—";
   return `${Math.round(element.scrollWidth)}×${Math.round(element.scrollHeight)} / ${Math.round(element.clientWidth)}×${Math.round(element.clientHeight)}`;
@@ -13,7 +15,7 @@ export class LayoutDiagnostics {
     this.enabled = false;
     this.handleKeydown = (event) => {
       if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== "d") return;
-      if (event.target.matches?.("input, textarea, [contenteditable='true']")) return;
+      if (ignorePresentationShortcut(event)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       this.toggle();

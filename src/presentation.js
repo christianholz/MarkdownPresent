@@ -1,6 +1,7 @@
 import { CONFIG } from "./config.js";
 import { applySpacingGlue, fittedImageStackWidth } from "./layout.js";
 import { drawioDiagramAspectRatio } from "./drawio.js";
+import { applyDiagramPlacement } from "./diagram-placement.js";
 import titleSlideTemplate from "./templates/title-slide.html?raw";
 import contentSlideTemplate from "./templates/content-slide.html?raw";
 import imageSlideTemplate from "./templates/image-slide.html?raw";
@@ -103,8 +104,9 @@ function addContinuationSuffix(model, page, total) {
 function applyImageMeasurements(slide, model, measurements) {
   const body = slide.querySelector(".slide-body");
   const media = slide.querySelector(".slide-media");
-  if (!body || !media || model.images.length < 2 || model.diagrams?.length || slide.classList.contains("is-caption-layout")) return;
-  const ratios = model.images.map(({ src }) => {
+  const flowImages = model.images.filter(({ placement }) => !placement);
+  if (!body || !media || flowImages.length < 2 || model.diagrams?.length || slide.classList.contains("is-caption-layout")) return;
+  const ratios = flowImages.map(({ src }) => {
     const measurement = measurements.get(src);
     return measurement ? measurement.width / measurement.height : 1;
   });
@@ -546,6 +548,7 @@ export class Presentation {
       if (image && this.stage.contains(image)) this.openImagePopover(image);
     };
     this.handleStageKeydown = (event) => {
+      if (event.defaultPrevented || this.stage.closest(".deck-screen.is-live-editing")) return;
       if (this.atEnd && event.target.closest?.(".presentation-end-screen") && ["Enter", " "].includes(event.key)) {
         event.preventDefault();
         event.stopPropagation();
@@ -938,7 +941,7 @@ function instantiateTemplate(html) {
 export function renderSlideElement(model, index) {
   const isTitleSlide = model.title?.tagName === "H1";
   const diagrams = model.diagrams || [];
-  const mediaCount = model.images.length + diagrams.length;
+  const mediaCount = model.images.filter(({ placement }) => !placement).length + diagrams.length;
   const template = model.imageOnly
     ? gallerySlideTemplate
     : isTitleSlide && mediaCount
@@ -962,25 +965,12 @@ export function renderSlideElement(model, index) {
   const copy = slide.querySelector('[data-slot="content"]');
   copy?.append(model.content.cloneNode(true));
 
+  const media = slide.querySelector('[data-slot="media"]');
   if (mediaCount) {
-    const media = slide.querySelector('[data-slot="media"]');
     slide.classList.add("has-media");
     if (!media) throw new Error("This slide layout cannot contain images.");
     media.classList.toggle("is-single-image", !model.imageOnly && mediaCount === 1);
     if (model.imageOnly) media.style.setProperty("--gallery-count", mediaCount);
-    for (const image of model.images) {
-      const slot = document.createElement("figure");
-      slot.className = "image-slot";
-      slot.dataset.imageSrc = image.src;
-      slot.dataset.imageAlt = image.alt;
-      if (Number.isInteger(image.sourceStart) && Number.isInteger(image.sourceEnd)) {
-        slot.dataset.sourceStart = String(image.sourceStart);
-        slot.dataset.sourceEnd = String(image.sourceEnd);
-        slot.dataset.sourceKind = "image";
-      }
-      slot.innerHTML = '<span class="image-loading">Loading image…</span>';
-      media.append(slot);
-    }
     for (const diagram of diagrams) {
       const slot = document.createElement("figure");
       slot.className = "image-slot drawio-slot";
@@ -993,6 +983,24 @@ export function renderSlideElement(model, index) {
       }
       slot.innerHTML = '<span class="drawio-loading">Loading diagram…</span>';
       media.append(slot);
+    }
+  }
+  for (const image of model.images) {
+    const slot = document.createElement("figure");
+    slot.className = "image-slot";
+    slot.dataset.imageSrc = image.src;
+    slot.dataset.imageAlt = image.alt;
+    if (Number.isInteger(image.sourceStart) && Number.isInteger(image.sourceEnd)) {
+      slot.dataset.sourceStart = String(image.sourceStart);
+      slot.dataset.sourceEnd = String(image.sourceEnd);
+      slot.dataset.sourceKind = "image";
+    }
+    slot.innerHTML = '<span class="image-loading">Loading image…</span>';
+    if (image.placement) {
+      applyDiagramPlacement(slot, image.placement);
+      slide.append(slot);
+    } else {
+      media.insertBefore(slot, media.querySelector(".drawio-slot"));
     }
   }
   return slide;

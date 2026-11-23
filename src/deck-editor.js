@@ -3,6 +3,8 @@ import "@milkdown/crepe/theme/classic.css";
 import "./deck-editor.css";
 import { processMarkdown } from "./markdown.js";
 import { renderSlideElement } from "./presentation.js";
+import { addSlideThumbnails } from "./slide-thumbnails.js";
+import { applyDiagramPlacement, boundDiagramPlacement, defaultPlacement, placementTitlePrefix } from "./diagram-placement.js";
 import {
   editableSection, hasEmbeddedImageData, markdownInsertion, markdownInsertTools, needsSourceEditor, replaceEditableSection,
 } from "./deck-editor-source.js";
@@ -23,7 +25,7 @@ function splitHeading(markdown) {
 
 function mediaKeyFor(model) {
   return JSON.stringify({
-    images: (model?.images || []).map(({ src, alt }) => [src, alt]),
+    images: (model?.images || []).map(({ src, alt, placement }) => [src, alt, placement]),
     diagrams: (model?.diagrams || []).map(({ src, title }) => [src, title]),
   });
 }
@@ -32,6 +34,8 @@ function imageSlot(image, assetManager, isCurrent, onReady) {
   const slot = document.createElement("figure");
   slot.className = "image-slot";
   slot.dataset.imageSrc = image.src;
+  if (Number.isInteger(image.sourceStart)) slot.dataset.sourceStart = String(image.sourceStart);
+  if (image.placement) applyDiagramPlacement(slot, image.placement);
   const imageElement = document.createElement("img");
   imageElement.alt = image.alt || "";
   imageElement.decoding = "async";
@@ -41,7 +45,8 @@ function imageSlot(image, assetManager, isCurrent, onReady) {
     imageElement.src = url;
     imageElement.decode().catch(() => {}).finally(() => {
       if (!isCurrent()) return;
-      slot.replaceChildren(imageElement);
+      const loading = slot.querySelector(".image-loading");
+      if (loading) loading.replaceWith(imageElement);
       onReady();
     });
   }).catch((cause) => { if (isCurrent()) slot.textContent = cause.message; });
@@ -96,6 +101,10 @@ export async function openDeckEditor({
     </div>
     <textarea class="deck-editor-source" aria-label="Slide Markdown source" spellcheck="false" hidden></textarea>`;
   deck.append(panel);
+  const measurePanel = new ResizeObserver(() => {
+    deck.style.setProperty("--deck-editor-panel-bottom", `${panel.getBoundingClientRect().bottom + 10}px`);
+  });
+  measurePanel.observe(panel);
   panel.querySelector(".deck-editor-header").insertBefore(revisionControls, panel.querySelector(".deck-editor-error"));
   panel.append(historyController.panel);
   revisionControls.hidden = false;
@@ -123,6 +132,18 @@ export async function openDeckEditor({
   activeEditor = panel;
 
   const showError = (message = "") => { error.textContent = message; };
+  const removeThumbnails = addSlideThumbnails(deck, presentation.slides.slice(), slideIndex, assetManager, async (index) => {
+    if (busy || index === slideIndex) return;
+    if (currentSection() !== original) {
+      showError("Save or cancel your changes before switching slides.");
+      return;
+    }
+    busy = true;
+    await cleanup(true);
+    await presentation.show(index);
+    await reopen(view);
+    deck.querySelector(".deck-editor-slides [aria-current]")?.focus({ preventScroll: true });
+  });
   const fit = () => { if (presentation.slides[slideIndex] === previewRecord) presentation.fitCurrent(); };
   const currentSection = () => {
     if (view === "source" || !crepe) return source.value;
@@ -147,16 +168,21 @@ export async function openDeckEditor({
     if (nextMediaKey === mediaKey) { fit(); return; }
     const version = ++mediaVersion;
     mediaKey = nextMediaKey;
-    if (!images.length && !diagrams.length) {
+    slide.querySelectorAll(":scope > .slide-positioned-image").forEach((slot) => slot.remove());
+    const createImage = (image) => imageSlot(image, assetManager, () => version === mediaVersion, fit);
+    for (const image of images.filter(({ placement }) => placement)) slide.append(createImage(image));
+    const flowImages = images.filter(({ placement }) => !placement);
+    if (!flowImages.length && !diagrams.length) {
       currentMedia?.remove();
       slide.classList.remove("has-media");
+      markEditableDiagrams(model);
       fit();
       return;
     }
     const media = currentMedia || document.createElement("aside");
     media.className = "slide-media";
-    media.classList.toggle("is-single-image", images.length + diagrams.length === 1);
-    media.replaceChildren(...images.map((image) => imageSlot(image, assetManager, () => version === mediaVersion, fit)));
+    media.classList.toggle("is-single-image", flowImages.length + diagrams.length === 1);
+    media.replaceChildren(...flowImages.map(createImage));
     for (const diagram of diagrams) {
       const slot = document.createElement("figure");
       slot.className = "image-slot drawio-slot";
@@ -169,6 +195,7 @@ export async function openDeckEditor({
     }
     if (!currentMedia) body.append(media);
     slide.classList.add("has-media");
+    markEditableDiagrams(model);
     fit();
   };
 
@@ -262,8 +289,22 @@ export async function openDeckEditor({
     mediaKey = mediaKeyFor(model);
     presentation.slides[slideIndex] = previewRecord;
     await presentation.loadAssets(slideIndex);
+    markEditableDiagrams(model);
     fit();
   };
+
+  const canEditDiagram = (image) => Boolean(image.svg || (onUploadImage && /\.svg(?:[?#]|$)/i.test(image.src)));
+  function markEditableDiagrams(model) {
+    for (const slot of previewRecord.element.querySelectorAll(".image-slot[data-image-src]")) {
+      if (!model.images.some((image) => image.src === slot.dataset.imageSrc && canEditDiagram(image))) continue;
+      if (slot.querySelector(".edit-diagram-button")) continue;
+      const button = document.createElement("button");
+      button.className = "edit-diagram-button";
+      button.type = "button";
+      button.textContent = "Edit diagram";
+      slot.append(button);
+    }
+  }
 
   const setView = (next) => {
     view = next;
@@ -284,11 +325,15 @@ export async function openDeckEditor({
     document.removeEventListener("keydown", handleKeydown, true);
     window.removeEventListener("beforeunload", handleBeforeUnload);
     window.removeEventListener("popstate", cancel);
+    presentation.stage.removeEventListener("click", selectDiagram);
     historyController.editor = null;
     historyController.close();
     revisionControls.hidden = true;
     deck.append(revisionControls, historyController.panel);
     panel.remove();
+    measurePanel.disconnect();
+    deck.style.removeProperty("--deck-editor-panel-bottom");
+    removeThumbnails();
     deck.classList.remove("is-live-editing");
     deck.classList.remove("is-url-only-edit");
     editButton.setAttribute("aria-expanded", "false");
@@ -371,38 +416,101 @@ export async function openDeckEditor({
       source.setSelectionRange(urlStart, start + text.length - 1);
     }
   };
-  panel.querySelector('[data-action="diagram"]').addEventListener("click", async (event) => {
+  const diagramButton = panel.querySelector('[data-action="diagram"]');
+  async function drawDiagram(existingSlot = null) {
     if (busy) return;
-    const button = event.currentTarget;
+    const slide = previewRecord.element;
+    const body = slide.querySelector(".slide-body");
+    if (!body) return;
     busy = true;
-    button.disabled = true;
+    diagramButton.disabled = true;
     save.disabled = true;
+    source.inert = true;
+    sourceTools.inert = true;
+    toolbarHost.inert = true;
+    const slideText = slide.querySelectorAll(".slide-title, .slide-copy");
+    for (const element of slideText) element.inert = true;
+    window.clearTimeout(sourceTimer);
+    const slot = document.createElement("figure");
+    slot.className = "image-slot diagram-edit-slot";
+    let placement = defaultPlacement;
+    if (existingSlot) {
+      const bounds = slide.getBoundingClientRect();
+      const box = existingSlot.getBoundingClientRect();
+      placement = boundDiagramPlacement({
+        x: (box.left - bounds.left) / bounds.width * 100,
+        y: (box.top - bounds.top) / bounds.height * 100,
+        width: box.width / bounds.width * 100,
+        height: box.height / bounds.height * 100,
+      });
+      existingSlot.style.visibility = "hidden";
+    }
+    applyDiagramPlacement(slot, placement);
+    slide.append(slot);
+    let nextMarkdown;
     try {
+      const markdown = currentSection();
+      const models = processMarkdown(markdown, null).slides;
+      const model = models[0];
+      const matchingImages = model?.images.filter(({ src }) => src === existingSlot?.dataset.imageSrc) || [];
+      const image = matchingImages.find(({ sourceStart }) => sourceStart === Number(existingSlot.dataset.sourceStart))
+        || (matchingImages.length === 1 ? matchingImages[0] : null);
+      if (existingSlot && (!image || image.src !== existingSlot.dataset.imageSrc
+        || !Number.isInteger(image.sourceStart) || !Number.isInteger(image.sourceEnd))) {
+        throw new Error("The diagram reference changed. Switch to Markdown and try again.");
+      }
+      let initialSvg = image?.svg;
+      if (image && !initialSvg) {
+        const url = await assetManager.getUrl(image.src);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Could not load the SVG.");
+        initialSvg = await response.text();
+      }
       const { openDiagramEditor } = await import("./diagram-editor.js");
-      await openDiagramEditor(deck, onUploadImage && (async (file) => {
-        const markdown = currentSection();
-        const asset = await onUploadImage(file, markdown);
-        if (view === "visual") {
-          source.value = markdown;
-          await destroyVisual();
-          setView("source");
-          source.setSelectionRange(markdown.length, markdown.length);
-          if (markdown && !markdown.endsWith("\n\n")) {
-            source.setRangeText(markdown.endsWith("\n") ? "\n" : "\n\n", markdown.length, markdown.length, "end");
-          }
-        }
-        insertMarkdown("image", asset);
-      }));
+      await openDiagramEditor(panel, slot, async (file, frame) => {
+        const svg = await file.text();
+        const asset = onUploadImage && !image?.svg ? await onUploadImage(file, markdown) : null;
+        const replacement = asset
+          ? markdownInsertion("image", "", "", "", { ...asset, alt: image?.alt || "Diagram", title: placementTitlePrefix + frame })
+          : ["```mdpresent-svg", svg.trim(), "```"].join("\n");
+        nextMarkdown = image
+          ? markdown.slice(0, model.sourceStart + image.sourceStart) + replacement + markdown.slice(model.sourceStart + image.sourceEnd)
+          : [markdown.trimEnd(), replacement].filter(Boolean).join("\n\n");
+      }, initialSvg, image?.placement || placement);
     } catch (error) {
       showError(error.message || "Could not open the diagram editor.");
     } finally {
+      slot.remove();
+      if (existingSlot) existingSlot.style.removeProperty("visibility");
+      for (const element of slideText) element.inert = false;
+      source.inert = false;
+      sourceTools.inert = false;
+      toolbarHost.inert = false;
+      try {
+        if (nextMarkdown !== undefined) {
+          source.value = nextMarkdown;
+          await destroyVisual();
+          setView("source");
+          await renderSourcePreview(nextMarkdown);
+        } else {
+          fit();
+        }
+      } catch (error) {
+        showError(error.message || "Could not refresh the diagram preview.");
+      }
       busy = false;
-      button.disabled = false;
+      diagramButton.disabled = false;
       save.disabled = false;
       if (view === "source") source.focus();
-      else button.focus();
+      else diagramButton.focus();
     }
-  });
+  }
+  function selectDiagram(event) {
+    const button = event.target.closest?.(".edit-diagram-button");
+    if (button) void drawDiagram(button.closest(".image-slot"));
+  }
+  diagramButton.addEventListener("click", () => { void drawDiagram(); });
+  presentation.stage.addEventListener("click", selectDiagram);
   sourceTools.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-insert]");
     if (button && !busy) insertMarkdown(button.dataset.insert);
@@ -471,5 +579,5 @@ export async function openDeckEditor({
     await renderSourcePreview(source.value).catch(() => {});
     showError(cause.message || "Could not open the visual editor.");
     source.focus();
-  } finally { busy = false; save.disabled = false; fit(); }
+  } finally { busy = false; save.disabled = false; markEditableDiagrams(slideModel); fit(); }
 }
